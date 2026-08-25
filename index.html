@@ -186,13 +186,59 @@ table.roster tr:hover td{background:#f8fbfd;}
 .spinner{width:34px;height:34px;border:3px solid var(--line);border-top-color:var(--blue);border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 14px;}
 @keyframes spin{to{transform:rotate(360deg);}}
 
-/* print */
-.print-only{display:none;}
+/* ---------------- bilingual text (VI tren / EN duoi) ---------------- */
+.bi{display:block;}
+.bi-vi{display:block;}
+.bi-en{display:block;font-size:.82em;color:var(--muted);font-style:italic;font-weight:400;margin-top:1px;line-height:1.3;}
+.btn .bi-en, .link-btn .bi-en{opacity:.82;}
+.card h2 .bi-en{font-size:.6em;color:var(--muted);font-weight:600;text-transform:none;letter-spacing:0;}
+label .bi-en{font-size:.78em;}
+.lead .bi-en{margin-top:4px;}
+.mini-note .bi-en{color:var(--muted);}
+
+/* ---------------- candidate personal info card ---------------- */
+.info-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 18px;}
+@media (max-width:640px){.info-grid{grid-template-columns:1fr;}}
+
+/* ---------------- zoom modal for diagrams ---------------- */
+.diagram-frame img{cursor:zoom-in;}
+.zoom-modal-backdrop{
+  position:fixed;inset:0;background:rgba(10,20,30,.86);z-index:999;
+  display:flex;align-items:center;justify-content:center;flex-direction:column;
+}
+.zoom-modal-toolbar{position:absolute;top:14px;right:16px;display:flex;gap:8px;z-index:1001;}
+.zoom-btn{
+  width:38px;height:38px;border-radius:8px;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.35);
+  color:#fff;font-size:18px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;
+}
+.zoom-btn:hover{background:rgba(255,255,255,.26);}
+.zoom-hint{position:absolute;bottom:14px;left:50%;transform:translateX(-50%);color:#cfe4f4;font-size:12.5px;background:rgba(0,0,0,.35);padding:6px 14px;border-radius:999px;}
+.zoom-viewport{width:94vw;height:86vh;overflow:hidden;display:flex;align-items:center;justify-content:center;cursor:grab;}
+.zoom-viewport.dragging{cursor:grabbing;}
+.zoom-viewport img{max-width:none;max-height:none;transition:transform .05s linear;user-select:none;-webkit-user-drag:none;}
+
+/* print — #print-root lives as a direct child of <body>, completely
+   outside the normal app flow, so it can paginate/break normally
+   (position:absolute + visibility hacks break CSS named-page pagination). */
+#print-root{display:none;}
 @media print{
-  body *{visibility:hidden;}
-  .print-only, .print-only *{visibility:visible;}
-  .print-only{display:block;position:absolute;top:0;left:0;width:100%;}
-  @page{margin:14mm;}
+  body > .topbar, body > .app{ display:none !important; }
+  #print-root{ display:block !important; }
+  @page{ size: A4 portrait; margin:14mm; }
+  /* Chrome's named-@page orientation switching is unreliable mid-document,
+     so wide sections are rotated 90° to fill a normal portrait page instead. */
+  .rotate-outer{
+    break-before: page;
+    width:182mm; height:269mm;
+    overflow:hidden;
+    position:relative;
+  }
+  .rotate-inner{
+    width:269mm; height:182mm;
+    transform: rotate(90deg);
+    transform-origin: top left;
+    position:absolute; top:0; left:182mm;
+  }
 }
 </style>
 </head>
@@ -210,6 +256,7 @@ table.roster tr:hover td{background:#f8fbfd;}
     </div>
   </div>
   <div class="app" id="app-root"></div>
+  <div id="print-root"></div>
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
@@ -282,29 +329,36 @@ const EX3_RIGHT_COUNT = 7;
 const EX3_PIPELINE_NOTES = [1,2,3,4]; // numbered call-outs on the diagram
 const EX3_TOTAL_POINTS = 40; // 18 symbols x 2 + 4 pipeline notes x 1 = 40
 
-// Exercise 5 — 10 numbered heat-transfer sources, 1 point each (free text, manual grading)
+// Exercise 5 — 10 numbered heat-transfer sources, 1 point each.
+// Reference answer key (from the original answer sheet) — used to help
+// the interviewer grade faster; grading itself is still manual since
+// candidate answers are free text.
+const EX5_REFERENCE = [
+  "Solar load",
+  "Solar load",
+  "Draft air load",
+  "Heat transfer load",
+  "Heat transfer load",
+  "Lighting load",
+  "People load",
+  "Equipment heat load",
+  "Process equipment heat load",
+  "Radiation heat load",
+];
 const EX5_ITEM_COUNT = 10;
 
 const EXAM_META = {
   title: "Recruitment Test — Design Engineer (MEP)",
   company: "Taikisha Vietnam Engineering Inc.",
-  totalPoints: 10 + 10 + 40 + 10 // 70
+  totalPoints: 10 + 10 + 40 + 10 // 70 (Exercise 5 = 10 muc x 1 diem; Tong Q = tong cua 10 muc, khong cong them)
 };
 /* ============================================================
-   MEP Recruitment Test — online multi-user version
-   Storage: window.storage (shared=true) so candidate + admin,
-   on different devices, read/write the same data.
-
-   Keys:
-     account:<username>     -> {password, fullName, position, createdAt}
-     submission:<username>  -> {answers, submittedAt, grading, gradedAt, interviewerNote}
-     admin:password         -> "..."
+   MEP Recruitment Test — online multi-user version (bilingual)
+   Storage: window.storage-style API backed by Firebase Firestore
+   (see sGet/sSet/sDelete/sList below).
    ============================================================ */
 
 /* ---------------- Firebase Firestore storage ---------------- */
-/* Same function signatures as before (sGet/sSet/sDelete/sList) so the
-   rest of the app below needs zero changes — only the backend swapped. */
-
 let db = null;
 let firebaseReady = false;
 let firebaseInitError = "";
@@ -323,7 +377,6 @@ function parseKey(key){
   if(key === "admin:password")      return ["config", "admin"];
   throw new Error("Unknown storage key: "+key);
 }
-
 async function sGet(key){
   if(!firebaseReady) return null;
   try{
@@ -364,14 +417,19 @@ async function sList(prefix){
   }catch(e){ console.error("sList failed", prefix, e); return []; }
 }
 
+/* ---------------- bilingual helper ---------------- */
+function bi(vi, en){ return vi; }
+function bis(vi, en){ return vi; }
+
 /* ---------------- app state (in-memory only) ---------------- */
-let view = "landing"; // landing | c-login | c-test | c-done | a-login | a-dash | a-grade | a-create
+let view = "landing";
 let session = { role:null, username:null };
-let candidateAnswers = null;   // working copy while taking test
+let candidateAnswers = null;
+let candidateInfo = null;
 let candidateSubmission = null;
 let saveTimer = null;
-let dashRoster = [];           // cached roster for admin dashboard
-let gradeTarget = null;        // username currently being graded
+let dashRoster = [];
+let gradeTarget = null;
 let gradeSubmission = null;
 let errorMsg = "";
 
@@ -382,7 +440,14 @@ function blankAnswers(){
   return { ex1:{}, ex2:{}, ex3:{left:{},right:{},notes:{}}, ex5:{items:{},q:""} };
 }
 function blankSubmission(){
-  return { answers: blankAnswers(), submittedAt:null, grading:{ex1:{},ex2:{},ex3:{left:{},right:{},notes:{}},ex5:{items:{}}}, gradedAt:null, interviewerNote:"" };
+  return {
+    candidateInfo: { fullName:"", dob:"" },
+    answers: blankAnswers(),
+    submittedAt: null,
+    grading: { ex1:{}, ex2:{}, ex3:{left:{},right:{},notes:{}}, ex5:{ items:{}, q:0 } },
+    gradedAt: null,
+    interviewerNote: ""
+  };
 }
 
 function esc(s){
@@ -398,15 +463,59 @@ function genPassword(){
   let s=""; for(let i=0;i<6;i++) s+=chars[Math.floor(Math.random()*chars.length)];
   return s;
 }
-function loadingBox(msg){ return `<div class="loading-box"><div class="spinner"></div>${esc(msg||"Dang tai...")}</div>`; }
+function loadingBox(msg){ return `<div class="loading-box"><div class="spinner"></div>${msg||bi("Đang tải...","Loading...")}</div>`; }
+function clampScoreMax(v,max){ let n=parseInt(v,10); if(isNaN(n)) n=0; return Math.max(0, Math.min(max,n)); }
+function sumObj(obj){ return Object.values(obj||{}).reduce((s,v)=>s+(parseInt(v,10)||0),0); }
+
+/* ---------------- zoom modal for diagrams ---------------- */
+function openZoomModal(src){
+  const backdrop = document.createElement("div");
+  backdrop.className = "zoom-modal-backdrop";
+  backdrop.innerHTML = `
+    <div class="zoom-modal-toolbar">
+      <button class="zoom-btn" id="zoom-in" title="+">+</button>
+      <button class="zoom-btn" id="zoom-out" title="-">&minus;</button>
+      <button class="zoom-btn" id="zoom-reset" title="Reset">&#8635;</button>
+      <button class="zoom-btn" id="zoom-close" title="Close">&times;</button>
+    </div>
+    <div class="zoom-viewport" id="zoom-viewport"><img id="zoom-img" src="${src}"></div>
+    <div class="zoom-hint">${bis("Cuộn chuột / kéo để xem, bấm X để đóng","Scroll / drag to pan, click X to close")}</div>
+  `;
+  document.body.appendChild(backdrop);
+  document.body.style.overflow = "hidden";
+
+  let scale = 1, tx = 0, ty = 0, dragging = false, lastX=0, lastY=0;
+  const img = backdrop.querySelector("#zoom-img");
+  const viewport = backdrop.querySelector("#zoom-viewport");
+  function apply(){ img.style.transform = `translate(${tx}px,${ty}px) scale(${scale})`; }
+  function setScale(ns){ scale = Math.max(0.5, Math.min(6, ns)); apply(); }
+
+  backdrop.querySelector("#zoom-in").onclick = ()=>setScale(scale*1.3);
+  backdrop.querySelector("#zoom-out").onclick = ()=>setScale(scale/1.3);
+  backdrop.querySelector("#zoom-reset").onclick = ()=>{ scale=1; tx=0; ty=0; apply(); };
+  const close = ()=>{ document.body.style.overflow=""; backdrop.remove(); document.removeEventListener("keydown", onKey); };
+  backdrop.querySelector("#zoom-close").onclick = close;
+  backdrop.addEventListener("click", (e)=>{ if(e.target===backdrop) close(); });
+  function onKey(e){ if(e.key==="Escape") close(); }
+  document.addEventListener("keydown", onKey);
+
+  viewport.addEventListener("wheel", (e)=>{ e.preventDefault(); setScale(scale * (e.deltaY<0?1.12:0.89)); }, {passive:false});
+  viewport.addEventListener("mousedown", (e)=>{ dragging=true; lastX=e.clientX; lastY=e.clientY; viewport.classList.add("dragging"); });
+  window.addEventListener("mousemove", (e)=>{ if(!dragging) return; tx += (e.clientX-lastX); ty += (e.clientY-lastY); lastX=e.clientX; lastY=e.clientY; apply(); });
+  window.addEventListener("mouseup", ()=>{ dragging=false; viewport.classList.remove("dragging"); });
+}
+function wireZoom(imgId){
+  const el = document.getElementById(imgId);
+  if(el) el.addEventListener("click", ()=>openZoomModal(el.src));
+}
 
 /* ================= TOP BAR ================= */
 function renderTopActions(){
   if(session.role==="candidate"){
-    topActions.innerHTML = `<span class="who">Ung vien: <b>${esc(session.username)}</b></span> <button class="link-btn" id="btn-logout">Dang xuat</button>`;
+    topActions.innerHTML = `<span class="who">${bis("Ứng viên","Candidate")}: <b>${esc(session.username)}</b></span> <button class="link-btn" id="btn-logout">${bis("Đăng xuất","Log out")}</button>`;
     document.getElementById("btn-logout").onclick = doLogout;
   } else if(session.role==="admin"){
-    topActions.innerHTML = `<span class="who">Quan tri vien</span> <button class="link-btn" id="btn-logout">Dang xuat</button>`;
+    topActions.innerHTML = `<span class="who">${bis("Quản trị viên","Administrator")}</span> <button class="link-btn" id="btn-logout">${bis("Đăng xuất","Log out")}</button>`;
     document.getElementById("btn-logout").onclick = doLogout;
   } else {
     topActions.innerHTML = `<span class="mode-pill">Online Test Portal</span>`;
@@ -414,7 +523,7 @@ function renderTopActions(){
 }
 function doLogout(){
   session = {role:null, username:null};
-  candidateAnswers = null; candidateSubmission = null;
+  candidateAnswers = null; candidateSubmission = null; candidateInfo = null;
   gradeTarget = null; gradeSubmission = null;
   view = "landing";
   goto(view);
@@ -439,19 +548,21 @@ function renderLanding(){
   root.className = "app";
   root.innerHTML = `
     <div class="card landing-hero">
-      <h2>Cong bai thi tuyen dung — Ky thuat MEP</h2>
-      <p>${esc(EXAM_META.company)}. He thong lam bai online: ung vien dang nhap bang tai khoan
-      duoc cap, lam bai va nop bai; quan tri vien dang nhap de cham diem va xuat ket qua.</p>
+      <h2>${bi("Cổng bài thi tuyển dụng — Kỹ thuật MEP","MEP Engineer Recruitment Test Portal")}</h2>
+      <p>${bi(
+        `${esc(EXAM_META.company)}. Hệ thống làm bài online: ứng viên đăng nhập bằng tài khoản được cấp, làm bài và nộp bài; quản trị viên đăng nhập để chấm điểm và xuất kết quả.`,
+        `${esc(EXAM_META.company)}. Online testing system: candidates log in with their assigned account to take and submit the test; administrators log in to grade and export results.`
+      )}</p>
       <div class="role-cards">
         <div class="role-card" id="go-candidate">
           <div class="emoji">&#128100;</div>
-          <h3>Ung vien</h3>
-          <p>Dang nhap bang tai khoan duoc cap de lam bai thi</p>
+          <h3>${bis("Ứng viên","Candidate")}</h3>
+          <p>${bi("Đăng nhập bang tai khoan duoc cap de lam bai thi","Log in with your assigned account to take the test")}</p>
         </div>
         <div class="role-card" id="go-admin">
           <div class="emoji">&#128274;</div>
-          <h3>Quan tri vien</h3>
-          <p>Tao tai khoan ung vien, cham bai va xuat ket qua</p>
+          <h3>${bis("Quản trị viên","Administrator")}</h3>
+          <p>${bi("Tạo tài khoản ung vien, cham bai va xuat ket qua","Create candidate accounts, grade tests and export results")}</p>
         </div>
       </div>
     </div>
@@ -465,13 +576,13 @@ function renderCandidateLogin(){
   root.className = "app";
   root.innerHTML = `
     <div class="card login-box">
-      <h2 style="text-align:center;">Ung vien dang nhap</h2>
+      <h2 style="text-align:center;">${bi("Ứng viên dang nhap","Candidate Login")}</h2>
       ${errorMsg?`<div class="error-msg">${esc(errorMsg)}</div>`:""}
-      <div class="field"><label>Tai khoan</label><input id="lg-user" type="text" autocomplete="username"></div>
-      <div class="field"><label>Mat khau</label><input id="lg-pass" type="password" autocomplete="current-password"></div>
-      <button class="btn btn-primary btn-block" id="btn-login-c">Dang nhap</button>
+      <div class="field"><label>${bis("Tài khoản","Username")}</label><input id="lg-user" type="text" autocomplete="username"></div>
+      <div class="field"><label>${bis("Mật khẩu","Password")}</label><input id="lg-pass" type="password" autocomplete="current-password"></div>
+      <button class="btn btn-primary btn-block" id="btn-login-c">${bis("Đăng nhập","Log in")}</button>
       <div class="btn-row" style="justify-content:center;margin-top:14px;">
-        <button class="link-btn" style="color:var(--blue);" id="back-landing">&larr; Quay lai trang chinh</button>
+        <button class="link-btn" style="color:var(--blue);" id="back-landing">&larr; ${bis("Quay lại trang chính","Back to home")}</button>
       </div>
     </div>
   `;
@@ -479,18 +590,21 @@ function renderCandidateLogin(){
   document.getElementById("btn-login-c").onclick = async ()=>{
     const u = document.getElementById("lg-user").value.trim();
     const p = document.getElementById("lg-pass").value;
-    if(!u || !p){ errorMsg="Vui long nhap day du tai khoan va mat khau."; return renderCandidateLogin(); }
-    root.innerHTML = loadingBox("Dang kiem tra tai khoan...");
+    if(!u || !p){ errorMsg = bis("Vui lòng nhập đầy đủ tài khoản và mật khẩu.","Please enter both username and password."); return renderCandidateLogin(); }
+    root.innerHTML = loadingBox(bi("Đang kiểm tra tài khoản...","Checking your account..."));
     const account = await sGet(`account:${u}`);
     if(!account || account.password !== p){
-      errorMsg = "Sai tai khoan hoac mat khau.";
+      errorMsg = bis("Sai tài khoản hoặc mật khẩu.","Incorrect username or password.");
       return renderCandidateLogin();
     }
     session = { role:"candidate", username:u };
     let sub = await sGet(`submission:${u}`);
     if(!sub){ sub = blankSubmission(); await sSet(`submission:${u}`, sub); }
+    if(!sub.candidateInfo) sub.candidateInfo = { fullName:"", dob:"" };
+    if(!sub.candidateInfo.fullName) sub.candidateInfo.fullName = account.fullName || "";
     candidateSubmission = sub;
     candidateAnswers = sub.answers || blankAnswers();
+    candidateInfo = sub.candidateInfo;
     errorMsg = "";
     if(sub.submittedAt){ goto("c-done"); }
     else { goto("c-test"); }
@@ -501,68 +615,92 @@ function renderCandidateLogin(){
 function renderCandidateTest(){
   root.className = "app";
   const a = candidateAnswers;
+  const info = candidateInfo;
 
   root.innerHTML = `
     <div class="progress-wrap">
       <div class="progress-track"><div class="progress-fill" id="progress-fill" style="width:0%"></div></div>
-      <div class="progress-label"><span id="progress-text">0% hoan thanh</span><span class="autosave-tag" id="autosave-tag">&#10003; Da luu</span></div>
+      <div class="progress-label"><span id="progress-text">0%</span><span class="autosave-tag" id="autosave-tag">&#10003; ${bis("Đã lưu","Saved")}</span></div>
     </div>
 
     <div class="card">
-      <h2>Exercise 1 <span class="pts">10 diem</span></h2>
-      <p class="lead">Pipe size selection — Chon kich thuoc ong phu hop. Dien theo <b>kich co ong (A)</b> hoac <b>duong kinh (mm)</b> — chi can 1 trong 2.</p>
+      <h2>${bi("Thông tin ứng viên","Candidate Information")}</h2>
+      <p class="lead">${bi("Vui lòng nhập đầy đủ thông tin để lưu vào kết quả bài thi.","Please fill in your details — this will be recorded on the test result.")}</p>
+      <div class="info-grid">
+        <div class="field">
+          <label>${bis("Họ và tên","Full name")} *</label>
+          <input id="info-fullname" type="text" placeholder="Nguyen Van A" value="${esc(info.fullName||"")}">
+        </div>
+        <div class="field">
+          <label>${bis("Ngày tháng năm sinh","Date of birth")} *</label>
+          <input id="info-dob" type="date" value="${esc(info.dob||"")}">
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Exercise 1 <span class="pts">${bis("10 điểm","10 points")}</span></h2>
+      <p class="lead">${bi("Chọn kích thước ống phù hợp. Điền theo kích cỡ ống (A) hoặc đường kính (mm) — chỉ cần 1 trong 2.","Pipe size selection — choose the correct pipe size. Enter either the pipe size (A) or the diameter (mm) — only one is required.")}</p>
       <div id="ex1-list"></div>
     </div>
 
     <div class="card">
-      <h2>Exercise 2 <span class="pts">10 diem</span></h2>
-      <p class="lead">Duct size selection — Chon kich thuoc duong ong gio (kich thuoc canh W, lam tron theo boi so 50mm).</p>
+      <h2>Exercise 2 <span class="pts">${bis("10 điểm","10 points")}</span></h2>
+      <p class="lead">${bi("Chọn kích thước đường ống gió (kích thước cạnh W, làm tròn theo bội số 50mm).","Duct size selection — choose the correct duct size (dimension W, rounded to the nearest 50mm).")}</p>
       <div id="ex2-list"></div>
     </div>
 
     <div class="card">
-      <h2>Exercise 3 <span class="pts">40 diem</span></h2>
-      <p class="lead">Basic knowledge of the system — Dien ten thiet bi / duong ong tuong ung voi tung ky hieu trong so do
-      nguyen ly he thong nuoc lanh (Chilled Water System). Xem so do tham khao de doi chieu vi tri cac ky hieu.</p>
-      <div class="diagram-toggle" id="toggle-diagram3">&#9654; Xem so do nguyen ly he thong (tham khao)</div>
-      <div class="diagram-frame" id="diagram3-frame" style="display:none;"><img src="${ASSET_DIAGRAM_EX3}" alt="Chilled water system schematic"></div>
+      <h2>Exercise 3 <span class="pts">${bis("40 điểm","40 points")}</span></h2>
+      <p class="lead">${bi(
+        "Điền tên thiết bị / đường ống tương ứng với từng ký hiệu trong sơ đồ nguyên lý hệ thống nước lạnh (Chilled Water System). Xem sơ đồ tham khảo để đối chiếu vị trí các ký hiệu.",
+        "Basic knowledge of the system — fill in the equipment / pipeline name for each symbol in the chilled water system schematic. View the reference diagram to locate each symbol."
+      )}</p>
+      <div class="diagram-toggle" id="toggle-diagram3">&#9654; ${bis("Xem sơ đồ nguyên lý hệ thống (tham khảo, bấm vào hình để phóng to)","View system schematic (reference — click image to zoom)")}</div>
+      <div class="diagram-frame" id="diagram3-frame" style="display:none;"><img id="diagram3-img" src="${ASSET_DIAGRAM_EX3}" alt="Chilled water system schematic"></div>
       <div class="two-col">
-        <div><h3 style="color:var(--navy);font-size:14px;margin:16px 0 8px;">Bang ky hieu — Trai</h3><div id="ex3-left"></div></div>
-        <div><h3 style="color:var(--navy);font-size:14px;margin:16px 0 8px;">Bang ky hieu — Phai</h3><div id="ex3-right"></div></div>
+        <div><h3 style="color:var(--navy);font-size:14px;margin:16px 0 8px;">${bis("Bảng ký hiệu — Trái","Symbol table — Left")}</h3><div id="ex3-left"></div></div>
+        <div><h3 style="color:var(--navy);font-size:14px;margin:16px 0 8px;">${bis("Bảng ký hiệu — Phải","Symbol table — Right")}</h3><div id="ex3-right"></div></div>
       </div>
-      <h3 style="color:var(--accent);font-size:14px;margin:18px 0 8px;">Ghi chu duong ong (vi tri danh so 1 - 4 tren so do)</h3>
+      <h3 style="color:var(--accent);font-size:14px;margin:18px 0 8px;">${bis("Ghi chú đường ống (vị trí đánh số 1 - 4 trên sơ đồ)","Pipeline notes (numbered positions 1-4 on the diagram)")}</h3>
       <div class="pipeline-notes" id="ex3-notes"></div>
     </div>
 
     <div class="card">
-      <h2>Exercise 5 <span class="pts">10 diem</span></h2>
-      <p class="lead">Basic knowledge of Heat Load — Dua vao hinh minh hoa, mo ta 10 nguon truyen nhiet / tai nhiet trong phong.</p>
-      <div class="diagram-toggle" id="toggle-diagram5">&#9654; Xem hinh minh hoa (tham khao)</div>
-      <div class="diagram-frame" id="diagram5-frame" style="display:none;"><img src="${ASSET_DIAGRAM_EX5}" alt="Heat load illustration"></div>
+      <h2>Exercise 5 <span class="pts">${bis("10 điểm","10 points")}</span></h2>
+      <p class="lead">${bi(
+        "Dựa vào hình minh họa, mô tả 10 nguồn truyền nhiệt / tải nhiệt trong phòng, sau đó tính tổng tải nhiệt Q.",
+        "Basic knowledge of Heat Load — based on the illustration, describe 10 heat-transfer sources in the room, then calculate the total heat load Q."
+      )}</p>
+      <div class="diagram-toggle" id="toggle-diagram5">&#9654; ${bis("Xem hình minh họa (tham khảo, bấm vào hình để phóng to)","View illustration (reference — click image to zoom)")}</div>
+      <div class="diagram-frame" id="diagram5-frame" style="display:none;"><img id="diagram5-img" src="${ASSET_DIAGRAM_EX5}" alt="Heat load illustration"></div>
       <div class="heat-list" id="ex5-list"></div>
       <div class="field" style="margin-top:14px;">
-        <label>Tong tai nhiet Q = (tuy chon, khong tinh diem rieng)</label>
+        <label>${bis("Tổng tải nhiệt Q =","Total heat load Q =")}</label>
         <input id="ex5-q" type="text" placeholder="Q = ..." value="${esc(a.ex5.q||"")}">
       </div>
     </div>
 
     <div class="card">
       <div class="btn-row">
-        <button class="btn btn-accent" id="btn-submit" style="margin-left:auto;">Nop bai &rarr;</button>
+        <button class="btn btn-accent" id="btn-submit" style="margin-left:auto;">${bis("Nộp bài","Submit test")} &rarr;</button>
       </div>
     </div>
   `;
+
+  document.getElementById("info-fullname").addEventListener("input", e=>{ info.fullName = e.target.value; onAnswerChange(); });
+  document.getElementById("info-dob").addEventListener("input", e=>{ info.dob = e.target.value; onAnswerChange(); });
 
   const ex1List = document.getElementById("ex1-list");
   EX1_ITEMS.forEach(item=>{
     const val = a.ex1[item.id] || "";
     const div = document.createElement("div"); div.className="item";
     div.innerHTML = `
-      <div class="item-head"><span class="item-title">(${item.id}) ${esc(item.name)}</span><span class="item-pts">${item.points} diem</span></div>
+      <div class="item-head"><span class="item-title">(${item.id}) ${esc(item.name)}</span></div>
       <ul><li>Temperature: ${esc(item.temp)}</li><li>Flow rate: ${esc(item.flow)}</li><li>Velocity: ${esc(item.velocity)}</li></ul>
       <div class="answer-row">
         <input type="text" data-ex1="${item.id}" placeholder="vd: 200A" value="${esc(val)}">
-        <span class="unit-hint">(nhap kich co ong VD 200A, hoac duong kinh VD 178mm)</span>
+        <span class="unit-hint">${bis("(nhập kích cỡ ống VD 200A, hoặc đường kính VD 178mm)","(enter pipe size e.g. 200A, or diameter e.g. 178mm)")}</span>
       </div>`;
     ex1List.appendChild(div);
   });
@@ -572,7 +710,7 @@ function renderCandidateTest(){
     const val = a.ex2[item.id] || "";
     const div = document.createElement("div"); div.className="item";
     div.innerHTML = `
-      <div class="item-head"><span class="item-title">(${item.id}) ${esc(item.name)} : Dimension of W.</span><span class="item-pts">${item.points} diem</span></div>
+      <div class="item-head"><span class="item-title">(${item.id}) ${esc(item.name)} : Dimension of W.</span></div>
       <ul>${item.details.map(d=>`<li>${esc(d)}</li>`).join("")}</ul>
       <div class="answer-row"><span class="unit-hint">Dimension of W =</span><input type="text" data-ex2="${item.id}" placeholder="vd: 500" value="${esc(val)}"><span class="unit-hint">mm</span></div>`;
     ex2List.appendChild(div);
@@ -583,11 +721,11 @@ function renderCandidateTest(){
   function buildLegend(containerId, icons, answerObj, side){
     const wrap = document.getElementById(containerId);
     const grid = document.createElement("div"); grid.className="legend-grid";
-    grid.innerHTML = `<div class="legend-head"><div>Ky hieu</div><div>Mo ta / Ten thiet bi</div></div>`;
+    grid.innerHTML = `<div class="legend-head"><div>${bis("Ký hiệu","Symbol")}</div><div>${bis("Mô tả / Tên thiết bị","Description / Equipment name")}</div></div>`;
     icons.forEach((src,i)=>{
       const idx=i+1; const val = answerObj[idx] || "";
       const row = document.createElement("div"); row.className="legend-row";
-      row.innerHTML = `<div class="cell-icon"><img src="${src}"></div><div class="cell-answer"><input type="text" data-ex3="${side}:${idx}" value="${esc(val)}" placeholder="Nhap ten thiet bi..."></div>`;
+      row.innerHTML = `<div class="cell-icon"><img src="${src}"></div><div class="cell-answer"><input type="text" data-ex3="${side}:${idx}" value="${esc(val)}" placeholder="${bis("Nhập tên thiết bị...","Enter equipment name...")}"></div>`;
       grid.appendChild(row);
     });
     wrap.appendChild(grid);
@@ -597,7 +735,7 @@ function renderCandidateTest(){
   EX3_PIPELINE_NOTES.forEach(n=>{
     const val = a.ex3.notes[n] || "";
     const d = document.createElement("div"); d.className="pn";
-    d.innerHTML = `<label>Vi tri so ${n}</label><input type="text" data-ex3note="${n}" value="${esc(val)}" placeholder="Ten thiet bi / duong ong...">`;
+    d.innerHTML = `<label>${bis("Vị trí số","Position")} ${n}</label><input type="text" data-ex3note="${n}" value="${esc(val)}" placeholder="${bis("Tên thiết bị / đường ống...","Equipment / pipeline name...")}">`;
     notesWrap.appendChild(d);
   });
 
@@ -605,7 +743,7 @@ function renderCandidateTest(){
   for(let i=1;i<=EX5_ITEM_COUNT;i++){
     const val = a.ex5.items[i] || "";
     const row = document.createElement("div"); row.className="heat-row";
-    row.innerHTML = `<div class="num">${i}</div><input type="text" data-ex5="${i}" value="${esc(val)}" placeholder="Mo ta nguon nhiet...">`;
+    row.innerHTML = `<div class="num">${i}</div><input type="text" data-ex5="${i}" value="${esc(val)}" placeholder="${bis("Mô tả nguồn nhiệt...","Describe the heat source...")}">`;
     ex5List.appendChild(row);
   }
 
@@ -618,11 +756,18 @@ function renderCandidateTest(){
 
   document.getElementById("toggle-diagram3").addEventListener("click", ()=>toggleDiagram("3"));
   document.getElementById("toggle-diagram5").addEventListener("click", ()=>toggleDiagram("5"));
+  wireZoom("diagram3-img");
+  wireZoom("diagram5-img");
 
   document.getElementById("btn-submit").onclick = async ()=>{
-    if(!confirm("Ban co chac chan muon nop bai? Sau khi nop se khong the chinh sua cau tra loi.")) return;
+    if(!confirm(bis("Bạn có chắc chắn muốn nộp bài? Sau khi nộp sẽ không thể chỉnh sửa câu trả lời.","Are you sure you want to submit? You will not be able to edit your answers after submitting."))) return;
+    if(!info.fullName || !info.dob){
+      alert(bis("Vui lòng nhập Họ và tên và Ngày sinh trước khi nộp bài.",""));
+      return;
+    }
     const btn = document.getElementById("btn-submit");
-    btn.disabled = true; btn.textContent = "Dang nop bai...";
+    btn.disabled = true; btn.textContent = bis("Đang nộp bài...","Submitting...");
+    candidateSubmission.candidateInfo = candidateInfo;
     candidateSubmission.answers = candidateAnswers;
     candidateSubmission.submittedAt = new Date().toISOString();
     await sSet(`submission:${session.username}`, candidateSubmission);
@@ -637,19 +782,20 @@ function toggleDiagram(n){
   const toggle = document.getElementById(`toggle-diagram${n}`);
   const showing = frame.style.display !== "none";
   frame.style.display = showing ? "none" : "block";
-  toggle.innerHTML = (showing ? "&#9654; " : "&#9660; ") + toggle.textContent.replace(/^[\u25B6\u25BC]\s*/,"");
+  toggle.innerHTML = (showing ? "&#9654; " : "&#9660; ") + toggle.innerHTML.replace(/^[\u25B6\u25BC]\s*/,"");
 }
 
 function onAnswerChange(){
   updateProgress();
   const tag = document.getElementById("autosave-tag");
-  if(tag){ tag.textContent = "Dang luu..."; tag.style.color = "var(--warn)"; }
+  if(tag){ tag.innerHTML = bis("Đang lưu...","Saving..."); tag.style.color = "var(--warn)"; }
   clearTimeout(saveTimer);
   saveTimer = setTimeout(async ()=>{
     candidateSubmission.answers = candidateAnswers;
+    candidateSubmission.candidateInfo = candidateInfo;
     await sSet(`submission:${session.username}`, candidateSubmission);
     const t = document.getElementById("autosave-tag");
-    if(t){ t.textContent = "\u2713 Da luu"; t.style.color = "var(--ok)"; }
+    if(t){ t.innerHTML = "&#10003; "+bis("Đã lưu","Saved"); t.style.color = "var(--ok)"; }
   }, 700);
 }
 
@@ -666,7 +812,7 @@ function updateProgress(){
   const fill = document.getElementById("progress-fill");
   const text = document.getElementById("progress-text");
   if(fill) fill.style.width = pct+"%";
-  if(text) text.textContent = pct+"% hoan thanh ("+filled+"/"+total+" muc)";
+  if(text) text.innerHTML = pct+"% ("+filled+"/"+total+") — "+bis("hoàn thành","complete");
 }
 
 /* ================= CANDIDATE DONE ================= */
@@ -675,9 +821,12 @@ function renderCandidateDone(){
   root.innerHTML = `
     <div class="card submitted-box">
       <div class="check">&#10003;</div>
-      <h2>Da nop bai thanh cong</h2>
-      <p>Cam on ban da hoan thanh bai kiem tra vao luc <b>${esc(fmtDT(candidateSubmission.submittedAt))}</b>.
-      Ket qua se duoc bo phan tuyen dung xem xet va lien he voi ban sau.</p>
+      <h2>${bi("Đã nộp bài thanh cong","Test submitted successfully")}</h2>
+      <p>${bi(
+        `Cam on <b>${esc(candidateSubmission.candidateInfo?.fullName || session.username)}</b> da hoàn thành bai kiem tra vao luc <b>${esc(fmtDT(candidateSubmission.submittedAt))}</b>.`,
+        `Thank you <b>${esc(candidateSubmission.candidateInfo?.fullName || session.username)}</b> for completing the test at <b>${esc(fmtDT(candidateSubmission.submittedAt))}</b>.`
+      )}</p>
+      <p>${bi("Kết quả sẽ được bộ phận tuyển dụng xem xét và liên hệ với bạn sau.","Your results will be reviewed by the recruitment team, who will contact you afterwards.")}</p>
     </div>
   `;
 }
@@ -687,25 +836,22 @@ function renderAdminLogin(){
   root.className = "app";
   root.innerHTML = `
     <div class="card login-box">
-      <h2 style="text-align:center;">Quan tri vien dang nhap</h2>
+      <h2 style="text-align:center;">${bi("Quản trị viên dang nhap","Administrator Login")}</h2>
       ${errorMsg?`<div class="error-msg">${esc(errorMsg)}</div>`:""}
-      <div class="field"><label>Mat khau quan tri</label><input id="ap" type="password"></div>
-      <button class="btn btn-primary btn-block" id="btn-login-a">Dang nhap</button>
+      <div class="field"><label>${bis("Mật khẩu quan tri","Admin password")}</label><input id="ap" type="password"></div>
+      <button class="btn btn-primary btn-block" id="btn-login-a">${bis("Đăng nhập","Log in")}</button>
       <div class="btn-row" style="justify-content:center;margin-top:14px;">
-        <button class="link-btn" style="color:var(--blue);" id="back-landing">&larr; Quay lai trang chinh</button>
+        <button class="link-btn" style="color:var(--blue);" id="back-landing">&larr; ${bis("Quay lại trang chính","Back to home")}</button>
       </div>
     </div>
   `;
   document.getElementById("back-landing").onclick = ()=>goto("landing");
   document.getElementById("btn-login-a").onclick = async ()=>{
     const p = document.getElementById("ap").value;
-    root.innerHTML = loadingBox("Dang kiem tra...");
+    root.innerHTML = loadingBox(bi("Đang kiểm tra...","Checking..."));
     let stored = await sGet("admin:password");
-    if(stored===null){
-      stored = "admin123";
-      await sSet("admin:password", stored);
-    }
-    if(p !== stored){ errorMsg = "Sai mat khau quan tri."; return renderAdminLogin(); }
+    if(stored===null){ stored = "admin123"; await sSet("admin:password", stored); }
+    if(p !== stored){ errorMsg = bis("Sai mật khẩu quản trị.","Incorrect admin password."); return renderAdminLogin(); }
     session = { role:"admin", username:null };
     errorMsg = "";
     goto("a-dash");
@@ -741,10 +887,10 @@ function hasAnyAnswer(answers){
 }
 function statusOf(entry){
   const sub = entry.sub;
-  if(!sub) return {label:"Chua co bai lam", cls:"status-pending"};
-  if(sub.gradedAt) return {label:`Da cham (${gradeTotal(sub.grading)}/${EXAM_META.totalPoints})`, cls:"status-graded"};
-  if(sub.submittedAt) return {label:"Da nop bai", cls:"status-submitted"};
-  return hasAnyAnswer(sub.answers) ? {label:"Dang lam bai", cls:"status-progress"} : {label:"Chua bat dau", cls:"status-pending"};
+  if(!sub) return {label:bis("Chưa có bài làm","No submission"), cls:"status-pending"};
+  if(sub.gradedAt) return {label:bis(`Da cham (${gradeTotal(sub.grading)}/${EXAM_META.totalPoints})`,`Graded (${gradeTotal(sub.grading)}/${EXAM_META.totalPoints})`), cls:"status-graded"};
+  if(sub.submittedAt) return {label:bis("Đã nộp bài","Submitted"), cls:"status-submitted"};
+  return hasAnyAnswer(sub.answers) ? {label:bis("Đang làm bài","In progress"), cls:"status-progress"} : {label:bis("Chưa bắt đầu","Not started"), cls:"status-pending"};
 }
 function gradeTotal(g){
   if(!g) return 0;
@@ -754,7 +900,7 @@ function gradeTotal(g){
 
 async function renderAdminDashboard(){
   root.className = "app wide";
-  root.innerHTML = loadingBox("Dang tai danh sach ung vien...");
+  root.innerHTML = loadingBox(bi("Đang tải danh sách ứng viên...","Loading candidate list..."));
   dashRoster = await loadRoster();
   drawDashboard();
 }
@@ -763,17 +909,20 @@ function drawDashboard(){
   root.innerHTML = `
     <div class="card">
       <div class="dash-toolbar">
-        <h2>Danh sach ung vien (${dashRoster.length})</h2>
+        <h2>${bi(`Danh sách ứng viên (${dashRoster.length})`, "")}</h2>
         <div class="btn-row" style="margin:0;">
-          <button class="btn btn-ghost btn-sm" id="btn-refresh">&#8635; Lam moi</button>
-          <button class="btn btn-primary btn-sm" id="btn-new-candidate">+ Tao ung vien moi</button>
-          <button class="btn btn-ghost btn-sm" id="btn-admin-pass">Doi mat khau admin</button>
+          <button class="btn btn-ghost btn-sm" id="btn-refresh">&#8635; ${bis("Làm mới","Refresh")}</button>
+          <button class="btn btn-primary btn-sm" id="btn-new-candidate">+ ${bis("Tạo ứng viên mới","New candidate")}</button>
+          <button class="btn btn-ghost btn-sm" id="btn-admin-pass">${bis("Đổi mật khẩu admin","Change admin password")}</button>
         </div>
       </div>
-      ${dashRoster.length===0 ? `<p class="lead">Chua co ung vien nao. Bam "Tao ung vien moi" de bat dau.</p>` : `
+      ${dashRoster.length===0 ? `<p class="lead">${bi('Chưa có ứng viên nào. Bấm "Tạo ứng viên mới" để bắt đầu.','No candidates yet. Click "New candidate" to get started.')}</p>` : `
       <div class="table-wrap">
       <table class="roster">
-        <thead><tr><th>Tai khoan</th><th>Ho ten</th><th>Vi tri</th><th>Trang thai</th><th>Thoi gian nop</th><th>Hanh dong</th></tr></thead>
+        <thead><tr>
+          <th>${bis("Tài khoản","Username")}</th><th>${bis("Họ tên","Full name")}</th><th>${bis("Vị trí","Position")}</th>
+          <th>${bis("Trạng thái","Status")}</th><th>${bis("Thời gian nộp","Submitted at")}</th><th>${bis("Hành động","Actions")}</th>
+        </tr></thead>
         <tbody id="roster-body"></tbody>
       </table>
       </div>`}
@@ -790,14 +939,14 @@ function drawDashboard(){
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td><code>${esc(entry.username)}</code></td>
-      <td>${esc(entry.account?.fullName||"—")}</td>
+      <td>${esc(entry.sub?.candidateInfo?.fullName || entry.account?.fullName || "—")}</td>
       <td>${esc(entry.account?.position||"—")}</td>
       <td><span class="status-pill ${st.cls}">${st.label}</span></td>
       <td>${entry.sub?.submittedAt ? esc(fmtDT(entry.sub.submittedAt)) : "—"}</td>
       <td><div class="row-actions">
-        <button class="btn btn-ghost btn-sm" data-view="${esc(entry.username)}">${entry.sub?.submittedAt ? "Cham bai" : "Xem"}</button>
-        <button class="btn btn-ghost btn-sm" data-cred="${esc(entry.username)}">Tai khoan</button>
-        <button class="btn btn-ghost btn-sm" data-del="${esc(entry.username)}" style="color:var(--bad);">Xoa</button>
+        <button class="btn btn-ghost btn-sm" data-view="${esc(entry.username)}">${entry.sub?.submittedAt ? bis("Chấm bài","Grade") : bis("Xem","View")}</button>
+        <button class="btn btn-ghost btn-sm" data-cred="${esc(entry.username)}">${bis("Tài khoản","Account")}</button>
+        <button class="btn btn-ghost btn-sm" data-del="${esc(entry.username)}" style="color:var(--bad);">${bis("Xóa","Delete")}</button>
       </div></td>
     `;
     body.appendChild(tr);
@@ -810,25 +959,25 @@ function drawDashboard(){
 function showCred(username){
   const entry = dashRoster.find(e=>e.username===username);
   if(!entry) return;
-  alert(`Tai khoan ung vien:\n\nUsername: ${username}\nPassword: ${entry.account.password}\n\nGui thong tin nay cho ung vien de ho dang nhap.`);
+  alert(`Tài khoản ứng viên\n\nUsername: ${username}\nPassword: ${entry.account.password}\n\nGửi thông tin này cho ứng viên để họ đăng nhập.`);
 }
 
 async function deleteCandidate(username){
-  if(!confirm(`Xoa tai khoan va bai lam cua "${username}"? Hanh dong nay khong the hoan tac.`)) return;
+  if(!confirm(`Xóa tài khoản và bài làm của "${username}"?\nHành động này không thể hoàn tác.`)) return;
   await sDelete(`account:${username}`);
   await sDelete(`submission:${username}`);
   renderAdminDashboard();
 }
 
 async function changeAdminPassword(){
-  const cur = prompt("Nhap mat khau admin hien tai:");
+  const cur = prompt("Nhập mật khẩu admin hiện tại:");
   if(cur===null) return;
   const stored = await sGet("admin:password") || "admin123";
-  if(cur !== stored){ alert("Mat khau hien tai khong dung."); return; }
-  const next = prompt("Nhap mat khau admin moi:");
+  if(cur !== stored){ alert("Mật khẩu hiện tại không đúng."); return; }
+  const next = prompt("Nhập mật khẩu admin mới:");
   if(!next) return;
   await sSet("admin:password", next);
-  alert("Da doi mat khau admin thanh cong.");
+  alert("Đã đổi mật khẩu admin thành công.");
 }
 
 /* ================= ADMIN CREATE CANDIDATE ================= */
@@ -837,15 +986,15 @@ function renderAdminCreate(){
   const suggested = genPassword();
   root.innerHTML = `
     <div class="card login-box">
-      <h2>Tao tai khoan ung vien</h2>
-      <div class="field"><label>Tai khoan (username) *</label><input id="nc-user" type="text" placeholder="vd: ungvien01"></div>
-      <div class="field"><label>Mat khau *</label><input id="nc-pass" type="text" value="${suggested}"></div>
-      <div class="field"><label>Ho va ten ung vien</label><input id="nc-name" type="text" placeholder="Nguyen Van A"></div>
-      <div class="field"><label>Vi tri ung tuyen</label><input id="nc-pos" type="text" value="Design Engineer (MEP)"></div>
+      <h2>${bi("Tạo tài khoản ứng viên","")}</h2>
+      <div class="field"><label>${bis("Tài khoản (username)","Username")} *</label><input id="nc-user" type="text" placeholder="vd: ungvien01"></div>
+      <div class="field"><label>${bis("Mật khẩu","Password")} *</label><input id="nc-pass" type="text" value="${suggested}"></div>
+      <div class="field"><label>${bis("Họ và tên ứng viên","")}</label><input id="nc-name" type="text" placeholder="Nguyen Van A"></div>
+      <div class="field"><label>${bis("Vị trí ứng tuyển","Position")}</label><input id="nc-pos" type="text" value="Design Engineer (MEP)"></div>
       ${errorMsg?`<div class="error-msg">${esc(errorMsg)}</div>`:""}
       <div class="btn-row">
-        <button class="btn btn-ghost" id="nc-cancel">Huy</button>
-        <button class="btn btn-primary" id="nc-save" style="margin-left:auto;">Tao tai khoan</button>
+        <button class="btn btn-ghost" id="nc-cancel">${bis("Hủy","Cancel")}</button>
+        <button class="btn btn-primary" id="nc-save" style="margin-left:auto;">${bis("Tạo tài khoản","Create account")}</button>
       </div>
     </div>
   `;
@@ -855,13 +1004,15 @@ function renderAdminCreate(){
     const password = document.getElementById("nc-pass").value.trim();
     const fullName = document.getElementById("nc-name").value.trim();
     const position = document.getElementById("nc-pos").value.trim();
-    if(!username || !password){ errorMsg = "Vui long nhap tai khoan va mat khau."; return renderAdminCreate(); }
+    if(!username || !password){ errorMsg = bis("Vui lòng nhập tài khoản và mật khẩu.","Please enter both username and password."); return renderAdminCreate(); }
     const existing = await sGet(`account:${username}`);
-    if(existing){ errorMsg = `Tai khoan "${username}" da ton tai. Vui long chon ten khac.`; return renderAdminCreate(); }
+    if(existing){ errorMsg = bis(`Tài khoản "${username}" đã tồn tại. Vui lòng chọn tên khác.`, ""); return renderAdminCreate(); }
     await sSet(`account:${username}`, { password, fullName, position, createdAt: new Date().toISOString() });
-    await sSet(`submission:${username}`, blankSubmission());
+    const sub = blankSubmission();
+    sub.candidateInfo.fullName = fullName;
+    await sSet(`submission:${username}`, sub);
     errorMsg = "";
-    alert(`Da tao tai khoan thanh cong!\n\nUsername: ${username}\nPassword: ${password}\n\nHay gui thong tin nay cho ung vien.`);
+    alert(`Đã tạo tài khoản thành công!\n\nUsername: ${username}\nPassword: ${password}\n\nHãy gửi thông tin này cho ứng viên.`);
     goto("a-dash");
   };
 }
@@ -870,12 +1021,14 @@ function renderAdminCreate(){
 async function openGrade(username){
   gradeTarget = username;
   root.className = "app";
-  root.innerHTML = loadingBox("Dang tai bai lam...");
+  root.innerHTML = loadingBox(bi("Đang tải bài làm...","Loading submission..."));
   gradeSubmission = await sGet(`submission:${username}`);
   if(!gradeSubmission){ gradeSubmission = blankSubmission(); }
   if(!gradeSubmission.answers) gradeSubmission.answers = blankAnswers();
+  if(!gradeSubmission.candidateInfo) gradeSubmission.candidateInfo = {fullName:"", dob:""};
   if(!gradeSubmission.grading) gradeSubmission.grading = {ex1:{},ex2:{},ex3:{left:{},right:{},notes:{}},ex5:{items:{}}};
-  // auto-fill Ex1/Ex2 suggested scores the first time
+  if(!gradeSubmission.grading.ex5) gradeSubmission.grading.ex5 = {items:{}};
+  if(!gradeSubmission.grading.ex5.items) gradeSubmission.grading.ex5.items = {};
   if(!gradeSubmission.gradedAt){
     EX1_ITEMS.forEach(it=>{ if(gradeSubmission.grading.ex1[it.id]===undefined) gradeSubmission.grading.ex1[it.id] = checkEx1(gradeSubmission.answers.ex1[it.id], it) ? it.points : 0; });
     EX2_ITEMS.forEach(it=>{ if(gradeSubmission.grading.ex2[it.id]===undefined) gradeSubmission.grading.ex2[it.id] = checkEx2(gradeSubmission.answers.ex2[it.id], it) ? it.points : 0; });
@@ -885,27 +1038,27 @@ async function openGrade(username){
 }
 
 function drawGrade(){
-  const a = gradeSubmission.answers, g = gradeSubmission.grading;
+  const a = gradeSubmission.answers, g = gradeSubmission.grading, info = gradeSubmission.candidateInfo || {};
   const entry = dashRoster.find(e=>e.username===gradeTarget) || {account:{}};
   const acc = entry.account || {};
 
   root.innerHTML = `
-    <div class="btn-row" style="margin-bottom:14px;"><button class="btn btn-ghost btn-sm" id="back-dash">&larr; Quay lai danh sach</button></div>
+    <div class="btn-row" style="margin-bottom:14px;"><button class="btn btn-ghost btn-sm" id="back-dash">&larr; ${bis("Quay lại danh sách","Back to list")}</button></div>
 
     <div class="summary-bar">
       <div class="who">
-        <h3>${esc(acc.fullName || gradeTarget)}</h3>
-        <p>Tai khoan: ${esc(gradeTarget)} &nbsp;|&nbsp; ${esc(acc.position||"—")} ${gradeSubmission.submittedAt? "&nbsp;|&nbsp; Nop luc "+esc(fmtDT(gradeSubmission.submittedAt)) : ""}</p>
+        <h3>${esc(info.fullName || acc.fullName || gradeTarget)}</h3>
+        <p>${bis("Tài khoản","Username")}: ${esc(gradeTarget)} &nbsp;|&nbsp; ${bis("Ngày sinh","DOB")}: ${esc(info.dob||"—")} &nbsp;|&nbsp; ${esc(acc.position||"—")} ${gradeSubmission.submittedAt? "&nbsp;|&nbsp; "+bis("Nộp lúc","Submitted")+": "+esc(fmtDT(gradeSubmission.submittedAt)) : ""}</p>
       </div>
-      <div class="score"><div class="num" id="grand-total">0</div><div class="max">/ ${EXAM_META.totalPoints} diem</div></div>
+      <div class="score"><div class="num" id="grand-total">0</div><div class="max">/ ${EXAM_META.totalPoints} ${bis("điểm","points")}</div></div>
     </div>
 
-    ${!gradeSubmission.submittedAt ? `<div class="error-msg">Ung vien nay chua nop bai. Ban van co the xem tien do hien tai nhung nen doi ung vien nop bai truoc khi cham diem chinh thuc.</div>` : ""}
+    ${!gradeSubmission.submittedAt ? `<div class="error-msg">${bi("Ứng viên này chưa nộp bài. Bạn vẫn có thể xem tiến độ hiện tại nhưng nên đợi ứng viên nộp bài trước khi chấm điểm chính thức.","")}</div>` : ""}
 
-    <div class="mini-note">
-      Exercise 1 &amp; 2 duoc <b>cham tu dong goi y</b> theo dap an chuan (co the chinh lai). Exercise 3 &amp; 5
-      <b>khong co dap an chuan</b> luu trong file goc — vui long doi chieu so do that va cham diem thu cong.
-    </div>
+    <div class="mini-note">${bi(
+      "Exercise 1 &amp; 2 được chấm tự động gợi ý theo đáp án chuẩn (có thể chỉnh lại). Exercise 3 không có đáp án chuẩn lưu trong file gốc — vui lòng đối chiếu sơ đồ thật và chấm điểm thủ công. Exercise 5 gồm 10 mục (1 điểm/mục, có gợi ý đáp án) — Tổng tải nhiệt Q bằng tổng 10 mục này, không chấm điểm riêng.",
+      ""
+    )}</div>
 
     <div class="card">
       <div class="ex-grade-header"><h2 style="margin:0;">Exercise 1</h2><span class="ex-grade-total" id="ex1-total">0 / 10</span></div>
@@ -917,38 +1070,45 @@ function drawGrade(){
     </div>
     <div class="card">
       <div class="ex-grade-header"><h2 style="margin:0;">Exercise 3</h2><span class="ex-grade-total" id="ex3-total">0 / 40</span></div>
-      <div class="diagram-toggle" id="toggle-diagram3g">&#9654; Xem so do nguyen ly he thong</div>
-      <div class="diagram-frame" id="diagram3g-frame" style="display:none;"><img src="${ASSET_DIAGRAM_EX3}"></div>
-      <h3 style="color:var(--navy);font-size:14px;margin:16px 0 4px;">Bang ky hieu — Trai</h3>
+      <div class="diagram-toggle" id="toggle-diagram3g">&#9654; ${bis("Xem sơ đồ nguyên lý hệ thống (bấm để phóng to)","View system schematic (click to zoom)")}</div>
+      <div class="diagram-frame" id="diagram3g-frame" style="display:none;"><img id="diagram3g-img" src="${ASSET_DIAGRAM_EX3}"></div>
+      <h3 style="color:var(--navy);font-size:14px;margin:16px 0 4px;">${bis("Bảng ký hiệu — Trái","Symbol table — Left")}</h3>
       <div id="grade-ex3-left"></div>
-      <h3 style="color:var(--navy);font-size:14px;margin:16px 0 4px;">Bang ky hieu — Phai</h3>
+      <h3 style="color:var(--navy);font-size:14px;margin:16px 0 4px;">${bis("Bảng ký hiệu — Phải","Symbol table — Right")}</h3>
       <div id="grade-ex3-right"></div>
-      <h3 style="color:var(--accent);font-size:14px;margin:16px 0 4px;">Ghi chu duong ong (1 - 4)</h3>
+      <h3 style="color:var(--accent);font-size:14px;margin:16px 0 4px;">${bis("Ghi chú đường ống (1 - 4)","Pipeline notes (1-4)")}</h3>
       <div id="grade-ex3-notes"></div>
     </div>
     <div class="card">
       <div class="ex-grade-header"><h2 style="margin:0;">Exercise 5</h2><span class="ex-grade-total" id="ex5-total">0 / 10</span></div>
-      <div class="diagram-toggle" id="toggle-diagram5g">&#9654; Xem hinh minh hoa</div>
-      <div class="diagram-frame" id="diagram5g-frame" style="display:none;"><img src="${ASSET_DIAGRAM_EX5}"></div>
-      <div id="grade-ex5"></div>
-      <p class="unit-hint" style="margin-top:10px;">Tong tai nhiet Q (ung vien ghi): <b>${esc(a.ex5.q||"(khong dien)")}</b></p>
+      <div class="diagram-toggle" id="toggle-diagram5g">&#9654; ${bis("Xem hình minh họa (bấm để phóng to)","View illustration (click to zoom)")}</div>
+      <div class="diagram-frame" id="diagram5g-frame" style="display:none;"><img id="diagram5g-img" src="${ASSET_DIAGRAM_EX5}"></div>
+      <p class="unit-hint" style="margin:10px 0;"><b>${bis("Các mục mô tả nguồn nhiệt (1 điểm/mục — có gợi ý đáp án)","Heat source items (1 point each)")}:</b></p>
+      <div id="grade-ex5-items" style="margin-bottom:14px;"></div>
+      <div class="grade-row" style="grid-template-columns:1fr 110px 90px;">
+        <div><div class="ga-label">${bis("Tổng tải nhiệt Q (ứng viên ghi — bằng tổng 10 mục trên, không chấm riêng)","Total heat load Q (candidate answer — equals the sum of the 10 items above, not scored separately)")}</div>
+          <div class="ga-answer ${a.ex5.q?"":"empty"}">${a.ex5.q?esc(a.ex5.q):bis("(chưa trả lời)","(not answered)")}</div></div>
+        <div></div>
+        <div></div>
+      </div>
     </div>
 
     <div class="card">
-      <div class="field"><label>Nhan xet cua nguoi phong van (se xuat hien trong PDF)</label>
+      <div class="field"><label>${bis("Nhận xét của người phỏng vấn (sẽ xuất hiện trong PDF)","Interviewer's comments (will appear in the PDF)")}</label>
         <textarea id="interviewer-note" rows="3">${esc(gradeSubmission.interviewerNote||"")}</textarea>
       </div>
       <div class="btn-row">
-        <button class="btn btn-primary" id="btn-save-grade">Luu diem</button>
-        <button class="btn btn-accent" id="btn-export-pdf">Xuat PDF ket qua &darr;</button>
+        <button class="btn btn-primary" id="btn-save-grade">${bis("Lưu điểm","Save grading")}</button>
+        <button class="btn btn-accent" id="btn-export-pdf">${bis("Xuất PDF kết quả","Export result PDF")} &darr;</button>
       </div>
     </div>
-    <div id="print-area" class="print-only"></div>
   `;
 
   document.getElementById("back-dash").onclick = ()=>goto("a-dash");
   document.getElementById("toggle-diagram3g").onclick = ()=>toggleDiagramG("3");
   document.getElementById("toggle-diagram5g").onclick = ()=>toggleDiagramG("5");
+  wireZoom("diagram3g-img");
+  wireZoom("diagram5g-img");
   document.getElementById("interviewer-note").addEventListener("input", e=>{ gradeSubmission.interviewerNote = e.target.value; });
   document.getElementById("btn-save-grade").onclick = saveGrade;
   document.getElementById("btn-export-pdf").onclick = exportPDF;
@@ -961,7 +1121,7 @@ function drawGrade(){
     const toggle = document.getElementById(`toggle-diagram${n}g`);
     const showing = frame.style.display !== "none";
     frame.style.display = showing ? "none" : "block";
-    toggle.innerHTML = (showing ? "&#9654; " : "&#9660; ") + toggle.textContent.replace(/^[\u25B6\u25BC]\s*/,"");
+    toggle.innerHTML = (showing ? "&#9654; " : "&#9660; ") + toggle.innerHTML.replace(/^[\u25B6\u25BC]\s*/,"");
   }
 
   function renderEx1Grading(){
@@ -972,9 +1132,9 @@ function drawGrade(){
       const row = document.createElement("div"); row.className="grade-row";
       row.innerHTML = `
         <div><div class="ga-label">(${item.id}) ${esc(item.name)}</div>
-          <div class="ga-answer ${val?"":"empty"}">${val?esc(val):"(chua tra loi)"}</div>
-          <div class="ga-correct">Dap an: ${item.answerA} (${item.answerMM} mm)</div></div>
-        <div><span class="ga-badge ${ok?"badge-ok":"badge-bad"}">${ok?"KHOP":"KHAC"}</span></div>
+          <div class="ga-answer ${val?"":"empty"}">${val?esc(val):bis("(chưa trả lời)","(not answered)")}</div>
+          <div class="ga-correct">${bis("Đáp án","Answer")}: ${item.answerA} (${item.answerMM} mm)</div></div>
+        <div><span class="ga-badge ${ok?"badge-ok":"badge-bad"}">${ok?bis("KHỚP","MATCH"):bis("KHÁC","DIFF")}</span></div>
         <div class="ga-score"><input type="number" min="0" max="${item.points}" step="1" data-g1="${item.id}" value="${g.ex1[item.id]??0}"> / ${item.points}</div>`;
       wrap.appendChild(row);
     });
@@ -988,9 +1148,9 @@ function drawGrade(){
       const row = document.createElement("div"); row.className="grade-row";
       row.innerHTML = `
         <div><div class="ga-label">(${item.id}) ${esc(item.name)}</div>
-          <div class="ga-answer ${val?"":"empty"}">${val?esc(val):"(chua tra loi)"}</div>
-          <div class="ga-correct">Dap an: ${item.answer} mm</div></div>
-        <div><span class="ga-badge ${ok?"badge-ok":"badge-bad"}">${ok?"KHOP":"KHAC"}</span></div>
+          <div class="ga-answer ${val?"":"empty"}">${val?esc(val):bis("(chưa trả lời)","(not answered)")}</div>
+          <div class="ga-correct">${bis("Đáp án","Answer")}: ${item.answer} mm</div></div>
+        <div><span class="ga-badge ${ok?"badge-ok":"badge-bad"}">${ok?bis("KHỚP","MATCH"):bis("KHÁC","DIFF")}</span></div>
         <div class="ga-score"><input type="number" min="0" max="${item.points}" step="1" data-g2="${item.id}" value="${g.ex2[item.id]??0}"> / ${item.points}</div>`;
       wrap.appendChild(row);
     });
@@ -1003,7 +1163,7 @@ function drawGrade(){
     EX3_PIPELINE_NOTES.forEach(n=>{
       const val = a.ex3.notes[n] || "";
       const row = document.createElement("div"); row.className="grade-row";
-      row.innerHTML = `<div><div class="ga-label">Vi tri so ${n}</div><div class="ga-answer ${val?"":"empty"}">${val?esc(val):"(chua tra loi)"}</div></div>
+      row.innerHTML = `<div><div class="ga-label">${bis("Vị trí số","Position")} ${n}</div><div class="ga-answer ${val?"":"empty"}">${val?esc(val):bis("(chưa trả lời)","(not answered)")}</div></div>
         <div></div><div class="ga-score"><input type="number" min="0" max="1" step="1" data-g3note="${n}" value="${g.ex3.notes[n]??0}"> / 1</div>`;
       notesWrap.appendChild(row);
     });
@@ -1014,7 +1174,7 @@ function drawGrade(){
       icons.forEach((src,i)=>{
         const idx=i+1; const val = answerObj[idx] || "";
         const row = document.createElement("div"); row.className="grade-row";
-        row.innerHTML = `<div class="icon-row-grade"><img src="${src}"><div class="ga-answer ${val?"":"empty"}" style="margin:0;">${val?esc(val):"(chua tra loi)"}</div></div>
+        row.innerHTML = `<div class="icon-row-grade"><img src="${src}"><div class="ga-answer ${val?"":"empty"}" style="margin:0;">${val?esc(val):bis("(chưa trả lời)","(not answered)")}</div></div>
           <div></div><div class="ga-score"><input type="number" min="0" max="${maxPts}" step="1" data-g3="${side}:${idx}" value="${gradeObj[idx]??0}"> / ${maxPts}</div>`;
         wrap.appendChild(row);
       });
@@ -1024,24 +1184,23 @@ function drawGrade(){
     }
   }
   function renderEx5Grading(){
-    const wrap = document.getElementById("grade-ex5");
+    const wrap = document.getElementById("grade-ex5-items");
     for(let i=1;i<=EX5_ITEM_COUNT;i++){
       const val = a.ex5.items[i] || "";
+      const ref = EX5_REFERENCE[i-1] || "";
       const row = document.createElement("div"); row.className="grade-row";
-      row.innerHTML = `<div><div class="ga-label">Muc ${i}</div><div class="ga-answer ${val?"":"empty"}">${val?esc(val):"(chua tra loi)"}</div></div>
+      row.innerHTML = `<div><div class="ga-label">${bis("Mục","Item")} ${i}</div><div class="ga-answer ${val?"":"empty"}">${val?esc(val):bis("(chưa trả lời)","(not answered)")}</div>
+          <div class="ga-correct">${bis("Gợi ý đáp án","Suggested answer")}: ${esc(ref)}</div></div>
         <div></div><div class="ga-score"><input type="number" min="0" max="1" step="1" data-g5="${i}" value="${g.ex5.items[i]??0}"> / 1</div>`;
       wrap.appendChild(row);
     }
     wrap.querySelectorAll("[data-g5]").forEach(inp=>inp.addEventListener("input", e=>{ g.ex5.items[e.target.dataset.g5]=clampScoreMax(e.target.value,1); recomputeTotals(); }));
   }
 
-  function clampScoreMax(v,max){ let n=parseInt(v,10); if(isNaN(n)) n=0; return Math.max(0, Math.min(max,n)); }
-  function sumObj(obj){ return Object.values(obj||{}).reduce((s,v)=>s+(parseInt(v,10)||0),0); }
-
   function recomputeTotals(){
     const t1 = EX1_ITEMS.reduce((s,it)=>s+(parseInt(g.ex1[it.id],10)||0),0);
     const t2 = EX2_ITEMS.reduce((s,it)=>s+(parseInt(g.ex2[it.id],10)||0),0);
-    const t3 = sumObj(g.ex3.left)+sumObj(g.ex3.right)+sumObj(g.ex3.notes);
+    const t3 = sumObj(g.ex3.left) + sumObj(g.ex3.right) + sumObj(g.ex3.notes);
     const t5 = sumObj(g.ex5.items);
     document.getElementById("ex1-total").textContent = `${t1} / 10`;
     document.getElementById("ex2-total").textContent = `${t2} / 10`;
@@ -1050,21 +1209,20 @@ function drawGrade(){
     document.getElementById("grand-total").textContent = (t1+t2+t3+t5);
     return {t1,t2,t3,t5,total:t1+t2+t3+t5};
   }
-  drawGrade._recompute = recomputeTotals;
 }
 
 async function saveGrade(){
   const btn = document.getElementById("btn-save-grade");
-  btn.disabled = true; btn.textContent = "Dang luu...";
+  btn.disabled = true; btn.innerHTML = bis("Đang lưu...","Saving...");
   gradeSubmission.gradedAt = new Date().toISOString();
   await sSet(`submission:${gradeTarget}`, gradeSubmission);
-  btn.disabled = false; btn.textContent = "Luu diem";
-  alert("Da luu diem thanh cong.");
+  btn.disabled = false; btn.innerHTML = bis("Lưu điểm","Save grading");
+  alert(bis("Đã lưu điểm thành công.","Grading saved successfully."));
 }
 
 /* ================= PDF EXPORT ================= */
 async function exportPDF(){
-  const a = gradeSubmission.answers, g = gradeSubmission.grading;
+  const a = gradeSubmission.answers, g = gradeSubmission.grading, info = gradeSubmission.candidateInfo || {};
   const entry = dashRoster.find(e=>e.username===gradeTarget) || {account:{}};
   const acc = entry.account || {};
 
@@ -1074,7 +1232,6 @@ async function exportPDF(){
 
   const t1 = EX1_ITEMS.reduce((s,it)=>s+(parseInt(g.ex1[it.id],10)||0),0);
   const t2 = EX2_ITEMS.reduce((s,it)=>s+(parseInt(g.ex2[it.id],10)||0),0);
-  const sumObj=(o)=>Object.values(o||{}).reduce((s,v)=>s+(parseInt(v,10)||0),0);
   const t3 = sumObj(g.ex3.left)+sumObj(g.ex3.right)+sumObj(g.ex3.notes);
   const t5 = sumObj(g.ex5.items);
   const total = t1+t2+t3+t5;
@@ -1085,34 +1242,43 @@ async function exportPDF(){
   const ex1Rows = EX1_ITEMS.map(it=>({label:`(${it.id}) ${it.name}`, ans:a.ex1[it.id], score:g.ex1[it.id]||0, max:it.points}));
   const ex2Rows = EX2_ITEMS.map(it=>({label:`(${it.id}) ${it.name}`, ans:a.ex2[it.id], score:g.ex2[it.id]||0, max:it.points}));
   const ex3Rows = [
-    ...Array.from({length:EX3_LEFT_COUNT},(_,i)=>({label:`Ky hieu trai #${i+1}`, ans:a.ex3.left[i+1], score:g.ex3.left[i+1]||0, max:2})),
-    ...Array.from({length:EX3_RIGHT_COUNT},(_,i)=>({label:`Ky hieu phai #${i+1}`, ans:a.ex3.right[i+1], score:g.ex3.right[i+1]||0, max:2})),
-    ...EX3_PIPELINE_NOTES.map(n=>({label:`Vi tri duong ong #${n}`, ans:a.ex3.notes[n], score:g.ex3.notes[n]||0, max:1})),
+    ...Array.from({length:EX3_LEFT_COUNT},(_,i)=>({label:`Ký hiệu trái #${i+1}`, ans:a.ex3.left[i+1], score:g.ex3.left[i+1]||0, max:2})),
+    ...Array.from({length:EX3_RIGHT_COUNT},(_,i)=>({label:`Ký hiệu phải #${i+1}`, ans:a.ex3.right[i+1], score:g.ex3.right[i+1]||0, max:2})),
+    ...EX3_PIPELINE_NOTES.map(n=>({label:`Vị trí đường ống #${n}`, ans:a.ex3.notes[n], score:g.ex3.notes[n]||0, max:1})),
   ];
-  const ex5Rows = [];
-  for(let i=1;i<=EX5_ITEM_COUNT;i++) ex5Rows.push({label:`Muc ${i}`, ans:a.ex5.items[i], score:g.ex5.items[i]||0, max:1});
+  const ex5ItemRows = [];
+  for(let i=1;i<=EX5_ITEM_COUNT;i++) ex5ItemRows.push(`<div style="display:flex;gap:8px;padding:3px 0;font-size:11px;"><b style="width:16px;">${i}.</b><span style="flex:1;">${esc(a.ex5.items[i]||"—")}</span><b style="width:34px;text-align:right;">${g.ex5.items[i]||0}/1</b></div>`);
 
-  const printArea = document.getElementById("print-area");
+  const printArea = document.getElementById("print-root");
   printArea.innerHTML = `
     <div style="font-family:Arial,Helvetica,sans-serif;color:#1a2430;padding:0 6px;">
       <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:3px solid #0b2e4f;padding-bottom:10px;margin-bottom:14px;">
         <div style="display:flex;align-items:center;gap:14px;">
           <img src="${ASSET_LOGO}" style="height:40px;">
-          <div><div style="font-size:17px;font-weight:800;color:#0b2e4f;">KET QUA BAI KIEM TRA TUYEN DUNG</div>
+          <div><div style="font-size:17px;font-weight:800;color:#0b2e4f;">KẾT QUẢ BÀI KIỂM TRA TUYỂN DỤNG</div>
           <div style="font-size:12px;color:#5c6b7a;">${esc(EXAM_META.company)} — Design Engineer (MEP)</div></div>
         </div>
-        <div style="text-align:right;font-size:12px;color:#5c6b7a;">Ngay xuat: ${new Date().toLocaleDateString("vi-VN")}</div>
+        <div style="text-align:right;font-size:12px;color:#5c6b7a;">Ngày xuất: ${new Date().toLocaleDateString("vi-VN")}</div>
       </div>
+
       <table style="width:100%;border-collapse:collapse;font-size:12.5px;margin-bottom:14px;">
-        <tr><td style="padding:4px 8px;width:25%;color:#5c6b7a;">Ho va ten</td><td style="padding:4px 8px;font-weight:700;">${esc(acc.fullName||gradeTarget)}</td>
-            <td style="padding:4px 8px;width:20%;color:#5c6b7a;">Tai khoan</td><td style="padding:4px 8px;font-weight:700;">${esc(gradeTarget)}</td></tr>
-        <tr><td style="padding:4px 8px;color:#5c6b7a;">Vi tri ung tuyen</td><td style="padding:4px 8px;">${esc(acc.position||"—")}</td>
-            <td style="padding:4px 8px;color:#5c6b7a;">Nop bai luc</td><td style="padding:4px 8px;">${esc(fmtDT(gradeSubmission.submittedAt)||"—")}</td></tr>
+        <tr>
+          <td style="padding:4px 8px;width:22%;color:#5c6b7a;">Họ và tên</td><td style="padding:4px 8px;font-weight:700;">${esc(info.fullName||acc.fullName||gradeTarget)}</td>
+          <td style="padding:4px 8px;width:18%;color:#5c6b7a;">Ngày sinh</td><td style="padding:4px 8px;font-weight:700;">${esc(info.dob||"—")}</td>
+        </tr>
+        <tr>
+          <td style="padding:4px 8px;color:#5c6b7a;">Tài khoản</td><td style="padding:4px 8px;">${esc(gradeTarget)}</td>
+          <td style="padding:4px 8px;color:#5c6b7a;">Vị trí</td><td style="padding:4px 8px;">${esc(acc.position||"—")}</td>
+        </tr>
+        <tr>
+          <td style="padding:4px 8px;color:#5c6b7a;">Nộp bài lúc</td><td style="padding:4px 8px;" colspan="3">${esc(fmtDT(gradeSubmission.submittedAt)||"—")}</td>
+        </tr>
       </table>
+
       <div style="display:flex;gap:10px;margin-bottom:16px;">
         <div style="flex:1;background:#0b2e4f;color:#fff;border-radius:8px;padding:14px 16px;text-align:center;">
           <div style="font-size:26px;font-weight:800;">${total} / ${EXAM_META.totalPoints}</div>
-          <div style="font-size:11px;letter-spacing:.5px;text-transform:uppercase;color:#cfe4f4;">Tong diem</div>
+          <div style="font-size:11px;letter-spacing:.5px;text-transform:uppercase;color:#cfe4f4;">Tổng điểm</div>
         </div>
         <div style="flex:2;display:grid;grid-template-columns:repeat(4,1fr);gap:8px;">
           ${[["Ex.1",t1,10],["Ex.2",t2,10],["Ex.3",t3,40],["Ex.5",t5,10]].map(([n,s,m])=>`
@@ -1121,26 +1287,64 @@ async function exportPDF(){
             </div>`).join("")}
         </div>
       </div>
+
       <table style="width:100%;border-collapse:collapse;font-size:11.5px;">
-        <thead><tr style="background:#0b2e4f;color:#fff;"><th style="padding:6px 8px;text-align:left;">Muc</th><th style="padding:6px 8px;text-align:left;">Tra loi cua ung vien</th><th style="padding:6px 8px;">Diem</th></tr></thead>
+        <thead><tr style="background:#0b2e4f;color:#fff;"><th style="padding:6px 8px;text-align:left;">Mục</th><th style="padding:6px 8px;text-align:left;">Trả lời</th><th style="padding:6px 8px;">Điểm</th></tr></thead>
         <tbody>
           ${rowsHtml("Exercise 1 — Pipe size selection", ex1Rows)}
           ${rowsHtml("Exercise 2 — Duct size selection", ex2Rows)}
-          ${rowsHtml("Exercise 3 — Basic knowledge of the system", ex3Rows)}
-          ${rowsHtml("Exercise 5 — Basic knowledge of Heat Load", ex5Rows)}
         </tbody>
       </table>
+
       <div style="margin-top:16px;font-size:12px;">
-        <div style="color:#5c6b7a;margin-bottom:4px;">Nhan xet cua nguoi phong van:</div>
+        <div style="color:#5c6b7a;margin-bottom:4px;">Nhận xét của người phỏng vấn:</div>
         <div style="border:1px solid #d7dfe6;border-radius:6px;padding:10px;min-height:50px;">${esc(gradeSubmission.interviewerNote||"")}</div>
       </div>
+
       <div style="display:flex;justify-content:space-between;margin-top:40px;font-size:12px;">
-        <div style="text-align:center;width:45%;"><div>Ung vien</div><div style="margin-top:50px;border-top:1px solid #999;padding-top:4px;">Ky va ghi ro ho ten</div></div>
-        <div style="text-align:center;width:45%;"><div>Nguoi cham bai</div><div style="margin-top:50px;border-top:1px solid #999;padding-top:4px;">Ky va ghi ro ho ten</div></div>
+        <div style="text-align:center;width:45%;"><div>Ứng viên</div><div style="margin-top:50px;border-top:1px solid #999;padding-top:4px;">Ký và ghi rõ họ tên</div></div>
+        <div style="text-align:center;width:45%;"><div>Người chấm bài</div><div style="margin-top:50px;border-top:1px solid #999;padding-top:4px;">Ký và ghi rõ họ tên</div></div>
       </div>
     </div>
+
+    <!-- ================= Exercise 3 — rotated (landscape-style) page with diagram ================= -->
+    <div class="rotate-outer"><div class="rotate-inner">
+      <div style="font-family:Arial,Helvetica,sans-serif;color:#1a2430;width:269mm;height:182mm;overflow:hidden;padding:4mm 6mm;box-sizing:border-box;">
+        <h2 style="color:#0b2e4f;font-size:15px;border-bottom:2px solid #0b2e4f;padding-bottom:5px;margin:0 0 6px;">
+          Exercise 3 — Basic knowledge of the system &nbsp; <span style="float:right;">${t3} / 40 điểm</span>
+        </h2>
+        <div style="display:flex;gap:10px;">
+          <img src="${ASSET_DIAGRAM_EX3}" style="width:56%;border:1px solid #d7dfe6;">
+          <table style="flex:1;border-collapse:collapse;font-size:8.5px;align-self:flex-start;">
+            <thead><tr style="background:#0b2e4f;color:#fff;"><th style="padding:3px 5px;text-align:left;">Mục</th><th style="padding:3px 5px;text-align:left;">Trả lời</th><th style="padding:3px 5px;">Điểm</th></tr></thead>
+            <tbody>${rowsHtml("Ký hiệu &amp; ghi chú đường ống", ex3Rows)}</tbody>
+          </table>
+        </div>
+      </div>
+    </div></div>
+
+    <!-- ================= Exercise 5 — rotated (landscape-style) page with diagram ================= -->
+    <div class="rotate-outer"><div class="rotate-inner">
+      <div style="font-family:Arial,Helvetica,sans-serif;color:#1a2430;width:269mm;height:182mm;overflow:hidden;padding:4mm 6mm;box-sizing:border-box;">
+        <h2 style="color:#0b2e4f;font-size:15px;border-bottom:2px solid #0b2e4f;padding-bottom:5px;margin:0 0 6px;">
+          Exercise 5 — Basic knowledge of Heat Load &nbsp; <span style="float:right;">${t5} / 10 điểm</span>
+        </h2>
+        <div style="display:flex;gap:14px;margin-top:8px;">
+          <img src="${ASSET_DIAGRAM_EX5}" style="width:46%;border:1px solid #d7dfe6;height:fit-content;">
+          <div style="flex:1;">
+            <div style="font-weight:700;font-size:11px;margin-bottom:5px;">Các nguồn truyền nhiệt (tham khảo):</div>
+            ${ex5ItemRows.join("")}
+            <div style="margin-top:10px;padding:8px;background:#f0f4f7;border-radius:6px;">
+              <div style="font-size:10px;color:#5c6b7a;">Tổng tải nhiệt Q (ứng viên ghi):</div>
+              <div style="font-size:13px;font-weight:700;margin-top:3px;">${esc(a.ex5.q||"—")}</div>
+              <div style="font-size:10px;color:#5c6b7a;margin-top:6px;">Điểm: <b>${t5} / 10</b></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div></div>
   `;
-  setTimeout(()=>{ window.print(); }, 80);
+  setTimeout(()=>{ window.print(); }, 120);
 }
 
 /* ---------------- boot ---------------- */
@@ -1148,11 +1352,9 @@ if(!firebaseReady){
   root.className = "app";
   root.innerHTML = `
     <div class="card">
-      <h2 style="color:var(--bad);">Khong the ket noi co so du lieu</h2>
-      <p class="lead">Firebase chua duoc cau hinh dung, hoac khong co ket noi mang. Chi tiet loi:</p>
-      <pre style="background:#f6f9fb;padding:12px;border-radius:8px;font-size:12.5px;white-space:pre-wrap;">${esc(firebaseInitError||"(khong co chi tiet)")}</pre>
-      <p class="lead">Kiem tra lai: (1) doan FIREBASE_CONFIG trong file co dung thong tin tu Firebase Console khong,
-      (2) Firestore Database da duoc tao va bat "Rules" cho phep read/write, (3) may tinh co dang ket noi internet.</p>
+      <h2 style="color:var(--bad);">${bi("Không thể kết nối cơ sở dữ liệu","Could not connect to the database")}</h2>
+      <p class="lead">${bi("Firebase chưa được cấu hình đúng, hoặc không có kết nối mạng. Chi tiết lỗi:","Firebase is not configured correctly, or there is no network connection. Error details:")}</p>
+      <pre style="background:#f6f9fb;padding:12px;border-radius:8px;font-size:12.5px;white-space:pre-wrap;">${esc(firebaseInitError||"(khong co chi tiet / no details)")}</pre>
     </div>`;
 } else {
   render();
