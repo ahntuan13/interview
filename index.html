@@ -109,8 +109,8 @@ body{font-family:var(--sans);color:var(--ink);background:#f2f5f8;-webkit-font-sm
 .legend-row .cell-icon{display:flex;align-items:center;justify-content:center;padding:8px;border-top:1px solid var(--line);border-right:1px solid var(--line);background:#fff;}
 .legend-row .cell-icon img{max-width:52px;max-height:44px;object-fit:contain;}
 .legend-row .cell-answer{border-top:1px solid var(--line);padding:6px 10px;background:#fbfdfe;display:flex;align-items:center;}
-.legend-row .cell-answer input{border:none;background:transparent;width:100%;font-size:14px;padding:8px 4px;}
-.legend-row .cell-answer input:focus{outline:none;background:#eef7fd;border-radius:6px;}
+.legend-row .cell-answer input, .legend-row .cell-answer select{border:none;background:transparent;width:100%;font-size:14px;padding:8px 4px;font-family:var(--sans);color:var(--ink);}
+.legend-row .cell-answer input:focus, .legend-row .cell-answer select:focus{outline:none;background:#eef7fd;border-radius:6px;}
 
 .two-col{display:grid;grid-template-columns:1fr 1fr;gap:24px;}
 @media (max-width:760px){.two-col{grid-template-columns:1fr;}}
@@ -124,7 +124,7 @@ body{font-family:var(--sans);color:var(--ink);background:#f2f5f8;-webkit-font-sm
 @media (max-width:700px){.pipeline-notes{grid-template-columns:repeat(2,1fr);}}
 .pipeline-notes .pn{border:1px solid var(--line);border-radius:8px;padding:10px;background:#fbfdfe;}
 .pipeline-notes .pn label{display:block;font-size:12.5px;font-weight:700;color:var(--accent);margin-bottom:6px;}
-.pipeline-notes .pn input{width:100%;border:1.5px solid var(--line);border-radius:6px;padding:8px;font-size:13.5px;}
+.pipeline-notes .pn input, .pipeline-notes .pn select{width:100%;border:1.5px solid var(--line);border-radius:6px;padding:8px;font-size:13.5px;font-family:var(--sans);color:var(--ink);background:#fff;}
 
 .heat-list{display:grid;gap:10px;}
 .heat-row{display:grid;grid-template-columns:34px 1fr;gap:10px;align-items:center;}
@@ -322,11 +322,44 @@ const EX2_ITEMS = [
 ];
 
 // Exercise 3 — legend icons (left table: 11 symbols, right table: 7 symbols)
-// No official text answer key exists in the source file for this exercise —
-// grading is manual (interviewer compares against the real P&ID legend).
+// Answer key confirmed from the official answer sheet — used for
+// auto-grading via multiple-choice dropdowns (like Exercise 1 & 2).
 const EX3_LEFT_COUNT = 11;
 const EX3_RIGHT_COUNT = 7;
+const EX3_LEFT_ANSWERS = [
+  "Gate Valve",
+  "Butterfly Valve",
+  "Y-Strainer",
+  "Flexible Joint",
+  "Check Valve",
+  "Motorize Valve",
+  "Reducing Valve",
+  "Pressure Gauge",
+  "Thermometer",
+  "Stop Valve",
+  "Safety Valve",
+];
+const EX3_RIGHT_ANSWERS = [
+  "Water Cooled Chiller",
+  "AHU - Air Handling Unit",
+  "FCU - Fan Coil Unit",
+  "Chilled / Cooling Water Pump",
+  "Flow Meter",
+  "Expansion Tank",
+  "Cooling Tower",
+];
+// Combined pool of names offered in every symbol dropdown (candidate must
+// pick the correct one out of all 18 — proper matching test).
+const EX3_SYMBOL_OPTIONS = [...EX3_LEFT_ANSWERS, ...EX3_RIGHT_ANSWERS].slice().sort();
+
 const EX3_PIPELINE_NOTES = [1,2,3,4]; // numbered call-outs on the diagram
+const EX3_PIPELINE_ANSWERS = {
+  1: "Chilled Water Supply",
+  2: "Chilled Water Return",
+  3: "Cooling Water Return",
+  4: "Cooling Water Supply",
+};
+const EX3_PIPELINE_OPTIONS = ["Chilled Water Return","Chilled Water Supply","Cooling Water Return","Cooling Water Supply"];
 const EX3_TOTAL_POINTS = 40; // 18 symbols x 2 + 4 pipeline notes x 1 = 40
 
 // Exercise 5 — 10 numbered heat-transfer sources, 1 point each.
@@ -653,7 +686,7 @@ function renderCandidateTest(){
     <div class="card">
       <h2>Exercise 3 <span class="pts">${bis("40 điểm","40 points")}</span></h2>
       <p class="lead">${bi(
-        "Điền tên thiết bị / đường ống tương ứng với từng ký hiệu trong sơ đồ nguyên lý hệ thống nước lạnh (Chilled Water System). Xem sơ đồ tham khảo để đối chiếu vị trí các ký hiệu.",
+        "Chọn tên thiết bị / đường ống đúng tương ứng với từng ký hiệu trong sơ đồ nguyên lý hệ thống nước lạnh (Chilled Water System). Xem sơ đồ tham khảo để đối chiếu vị trí các ký hiệu.",
         "Basic knowledge of the system — fill in the equipment / pipeline name for each symbol in the chilled water system schematic. View the reference diagram to locate each symbol."
       )}</p>
       <div class="diagram-toggle" id="toggle-diagram3">&#9654; ${bis("Xem sơ đồ nguyên lý hệ thống (tham khảo, bấm vào hình để phóng to)","View system schematic (reference — click image to zoom)")}</div>
@@ -721,11 +754,12 @@ function renderCandidateTest(){
   function buildLegend(containerId, icons, answerObj, side){
     const wrap = document.getElementById(containerId);
     const grid = document.createElement("div"); grid.className="legend-grid";
-    grid.innerHTML = `<div class="legend-head"><div>${bis("Ký hiệu","Symbol")}</div><div>${bis("Mô tả / Tên thiết bị","Description / Equipment name")}</div></div>`;
+    grid.innerHTML = `<div class="legend-head"><div>${bis("Ký hiệu","Symbol")}</div><div>${bis("Chọn tên thiết bị","Select equipment name")}</div></div>`;
     icons.forEach((src,i)=>{
       const idx=i+1; const val = answerObj[idx] || "";
       const row = document.createElement("div"); row.className="legend-row";
-      row.innerHTML = `<div class="cell-icon"><img src="${src}"></div><div class="cell-answer"><input type="text" data-ex3="${side}:${idx}" value="${esc(val)}" placeholder="${bis("Nhập tên thiết bị...","Enter equipment name...")}"></div>`;
+      const opts = `<option value="">${bis("-- Chọn --","-- Select --")}</option>` + EX3_SYMBOL_OPTIONS.map(o=>`<option value="${esc(o)}" ${o===val?"selected":""}>${esc(o)}</option>`).join("");
+      row.innerHTML = `<div class="cell-icon"><img src="${src}"></div><div class="cell-answer"><select data-ex3="${side}:${idx}">${opts}</select></div>`;
       grid.appendChild(row);
     });
     wrap.appendChild(grid);
@@ -735,7 +769,8 @@ function renderCandidateTest(){
   EX3_PIPELINE_NOTES.forEach(n=>{
     const val = a.ex3.notes[n] || "";
     const d = document.createElement("div"); d.className="pn";
-    d.innerHTML = `<label>${bis("Vị trí số","Position")} ${n}</label><input type="text" data-ex3note="${n}" value="${esc(val)}" placeholder="${bis("Tên thiết bị / đường ống...","Equipment / pipeline name...")}">`;
+    const opts = `<option value="">${bis("-- Chọn --","-- Select --")}</option>` + EX3_PIPELINE_OPTIONS.map(o=>`<option value="${esc(o)}" ${o===val?"selected":""}>${esc(o)}</option>`).join("");
+    d.innerHTML = `<label>${bis("Vị trí số","Position")} ${n}</label><select data-ex3note="${n}">${opts}</select>`;
     notesWrap.appendChild(d);
   });
 
@@ -749,8 +784,8 @@ function renderCandidateTest(){
 
   root.querySelectorAll("[data-ex1]").forEach(inp=>inp.addEventListener("input", e=>{ a.ex1[e.target.dataset.ex1]=e.target.value; onAnswerChange(); }));
   root.querySelectorAll("[data-ex2]").forEach(inp=>inp.addEventListener("input", e=>{ a.ex2[e.target.dataset.ex2]=e.target.value; onAnswerChange(); }));
-  root.querySelectorAll("[data-ex3]").forEach(inp=>inp.addEventListener("input", e=>{ const [s,i]=e.target.dataset.ex3.split(":"); a.ex3[s][i]=e.target.value; onAnswerChange(); }));
-  root.querySelectorAll("[data-ex3note]").forEach(inp=>inp.addEventListener("input", e=>{ a.ex3.notes[e.target.dataset.ex3note]=e.target.value; onAnswerChange(); }));
+  root.querySelectorAll("[data-ex3]").forEach(inp=>inp.addEventListener("change", e=>{ const [s,i]=e.target.dataset.ex3.split(":"); a.ex3[s][i]=e.target.value; onAnswerChange(); }));
+  root.querySelectorAll("[data-ex3note]").forEach(inp=>inp.addEventListener("change", e=>{ a.ex3.notes[e.target.dataset.ex3note]=e.target.value; onAnswerChange(); }));
   root.querySelectorAll("[data-ex5]").forEach(inp=>inp.addEventListener("input", e=>{ a.ex5.items[e.target.dataset.ex5]=e.target.value; onAnswerChange(); }));
   document.getElementById("ex5-q").addEventListener("input", e=>{ a.ex5.q=e.target.value; onAnswerChange(); });
 
@@ -1032,6 +1067,9 @@ async function openGrade(username){
   if(!gradeSubmission.gradedAt){
     EX1_ITEMS.forEach(it=>{ if(gradeSubmission.grading.ex1[it.id]===undefined) gradeSubmission.grading.ex1[it.id] = checkEx1(gradeSubmission.answers.ex1[it.id], it) ? it.points : 0; });
     EX2_ITEMS.forEach(it=>{ if(gradeSubmission.grading.ex2[it.id]===undefined) gradeSubmission.grading.ex2[it.id] = checkEx2(gradeSubmission.answers.ex2[it.id], it) ? it.points : 0; });
+    EX3_LEFT_ANSWERS.forEach((ans,i)=>{ const idx=i+1; if(gradeSubmission.grading.ex3.left[idx]===undefined) gradeSubmission.grading.ex3.left[idx] = (gradeSubmission.answers.ex3.left[idx]===ans) ? 2 : 0; });
+    EX3_RIGHT_ANSWERS.forEach((ans,i)=>{ const idx=i+1; if(gradeSubmission.grading.ex3.right[idx]===undefined) gradeSubmission.grading.ex3.right[idx] = (gradeSubmission.answers.ex3.right[idx]===ans) ? 2 : 0; });
+    EX3_PIPELINE_NOTES.forEach(n=>{ if(gradeSubmission.grading.ex3.notes[n]===undefined) gradeSubmission.grading.ex3.notes[n] = (gradeSubmission.answers.ex3.notes[n]===EX3_PIPELINE_ANSWERS[n]) ? 1 : 0; });
   }
   view = "a-grade";
   drawGrade();
@@ -1056,7 +1094,7 @@ function drawGrade(){
     ${!gradeSubmission.submittedAt ? `<div class="error-msg">${bi("Ứng viên này chưa nộp bài. Bạn vẫn có thể xem tiến độ hiện tại nhưng nên đợi ứng viên nộp bài trước khi chấm điểm chính thức.","")}</div>` : ""}
 
     <div class="mini-note">${bi(
-      "Exercise 1 &amp; 2 được chấm tự động gợi ý theo đáp án chuẩn (có thể chỉnh lại). Exercise 3 không có đáp án chuẩn lưu trong file gốc — vui lòng đối chiếu sơ đồ thật và chấm điểm thủ công. Exercise 5 gồm 10 mục (1 điểm/mục, có gợi ý đáp án) — Tổng tải nhiệt Q bằng tổng 10 mục này, không chấm điểm riêng.",
+      "Exercise 1, 2 &amp; 3 được chấm tự động theo đáp án chuẩn (có thể chỉnh lại nếu cần). Exercise 5 gồm 10 mục (1 điểm/mục, có gợi ý đáp án) — Tổng tải nhiệt Q bằng tổng 10 mục này, không chấm điểm riêng.",
       ""
     )}</div>
 
@@ -1157,25 +1195,35 @@ function drawGrade(){
     wrap.querySelectorAll("[data-g2]").forEach(inp=>inp.addEventListener("input", e=>{ g.ex2[e.target.dataset.g2]=clampScoreMax(e.target.value,2); recomputeTotals(); }));
   }
   function renderEx3Grading(){
-    buildLegendGrade("grade-ex3-left", ASSET_ICONS_LEFT, a.ex3.left, g.ex3.left, "left", 2);
-    buildLegendGrade("grade-ex3-right", ASSET_ICONS_RIGHT, a.ex3.right, g.ex3.right, "right", 2);
+    buildLegendGrade("grade-ex3-left", ASSET_ICONS_LEFT, a.ex3.left, g.ex3.left, "left", 2, EX3_LEFT_ANSWERS);
+    buildLegendGrade("grade-ex3-right", ASSET_ICONS_RIGHT, a.ex3.right, g.ex3.right, "right", 2, EX3_RIGHT_ANSWERS);
     const notesWrap = document.getElementById("grade-ex3-notes");
     EX3_PIPELINE_NOTES.forEach(n=>{
       const val = a.ex3.notes[n] || "";
+      const correct = EX3_PIPELINE_ANSWERS[n];
+      const ok = val && val === correct;
       const row = document.createElement("div"); row.className="grade-row";
-      row.innerHTML = `<div><div class="ga-label">${bis("Vị trí số","Position")} ${n}</div><div class="ga-answer ${val?"":"empty"}">${val?esc(val):bis("(chưa trả lời)","(not answered)")}</div></div>
-        <div></div><div class="ga-score"><input type="number" min="0" max="1" step="1" data-g3note="${n}" value="${g.ex3.notes[n]??0}"> / 1</div>`;
+      row.innerHTML = `<div><div class="ga-label">${bis("Vị trí số","Position")} ${n}</div><div class="ga-answer ${val?"":"empty"}">${val?esc(val):bis("(chưa trả lời)","(not answered)")}</div>
+          <div class="ga-correct">${bis("Đáp án","Answer")}: ${esc(correct)}</div></div>
+        <div><span class="ga-badge ${ok?"badge-ok":"badge-bad"}">${ok?bis("KHỚP","MATCH"):bis("KHÁC","DIFF")}</span></div>
+        <div class="ga-score"><input type="number" min="0" max="1" step="1" data-g3note="${n}" value="${g.ex3.notes[n]??0}"> / 1</div>`;
       notesWrap.appendChild(row);
     });
     notesWrap.querySelectorAll("[data-g3note]").forEach(inp=>inp.addEventListener("input", e=>{ g.ex3.notes[e.target.dataset.g3note]=clampScoreMax(e.target.value,1); recomputeTotals(); }));
 
-    function buildLegendGrade(containerId, icons, answerObj, gradeObj, side, maxPts){
+    function buildLegendGrade(containerId, icons, answerObj, gradeObj, side, maxPts, answers){
       const wrap = document.getElementById(containerId);
       icons.forEach((src,i)=>{
         const idx=i+1; const val = answerObj[idx] || "";
+        const correct = answers[i];
+        const ok = val && val === correct;
         const row = document.createElement("div"); row.className="grade-row";
-        row.innerHTML = `<div class="icon-row-grade"><img src="${src}"><div class="ga-answer ${val?"":"empty"}" style="margin:0;">${val?esc(val):bis("(chưa trả lời)","(not answered)")}</div></div>
-          <div></div><div class="ga-score"><input type="number" min="0" max="${maxPts}" step="1" data-g3="${side}:${idx}" value="${gradeObj[idx]??0}"> / ${maxPts}</div>`;
+        row.innerHTML = `<div class="icon-row-grade"><img src="${src}"><div>
+            <div class="ga-answer ${val?"":"empty"}" style="margin:0;">${val?esc(val):bis("(chưa trả lời)","(not answered)")}</div>
+            <div class="ga-correct">${bis("Đáp án","Answer")}: ${esc(correct)}</div>
+          </div></div>
+          <div><span class="ga-badge ${ok?"badge-ok":"badge-bad"}">${ok?bis("KHỚP","MATCH"):bis("KHÁC","DIFF")}</span></div>
+          <div class="ga-score"><input type="number" min="0" max="${maxPts}" step="1" data-g3="${side}:${idx}" value="${gradeObj[idx]??0}"> / ${maxPts}</div>`;
         wrap.appendChild(row);
       });
       wrap.querySelectorAll("[data-g3]").forEach(inp=>inp.addEventListener("input", e=>{
