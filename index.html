@@ -240,6 +240,35 @@ label .bi-en{font-size:.78em;}
     position:absolute; top:0; left:182mm;
   }
 }
+
+/* countdown timer */
+.timer-wrap{margin-top:10px;}
+.timer-label{display:flex;justify-content:space-between;font-size:13px;font-weight:700;color:var(--navy);margin-bottom:5px;}
+.timer-label #timer-text{font-variant-numeric:tabular-nums;font-size:14px;}
+.timer-track{height:8px;border-radius:999px;background:#dfe7ee;overflow:hidden;}
+.timer-fill{height:100%;width:100%;background:linear-gradient(90deg,var(--blue),var(--navy));transition:width 1s linear, background .3s;}
+.timer-fill.timer-warn{background:linear-gradient(90deg,#e0a800,#b8860b);}
+.timer-fill.timer-danger{background:linear-gradient(90deg,#e0472c,#c53434);}
+
+/* time's up lockout overlay */
+.time-up-overlay{
+  position:fixed; inset:0; z-index:99999;
+  background:rgba(10,20,30,.72);
+  display:flex; align-items:center; justify-content:center;
+  padding:20px;
+}
+.time-up-box{
+  background:#fff; border-radius:14px; max-width:440px; width:100%;
+  padding:32px 30px; text-align:center;
+  box-shadow:0 20px 60px rgba(0,0,0,.35);
+}
+.time-up-box .clock-icon{
+  width:64px;height:64px;border-radius:50%;background:var(--bad-bg);color:var(--bad);
+  display:flex;align-items:center;justify-content:center;margin:0 auto 16px;font-size:30px;
+}
+.time-up-box h2{margin:0 0 10px;color:var(--navy);font-size:21px;}
+.time-up-box p{margin:0 0 22px;color:var(--muted);font-size:14.5px;line-height:1.6;}
+.test-locked{pointer-events:none;user-select:none;opacity:.55;filter:grayscale(.15);}
 </style>
 </head>
 <body>
@@ -385,6 +414,7 @@ const EXAM_META = {
   company: "Taikisha Vietnam Engineering Inc.",
   totalPoints: 10 + 10 + 40 + 10 // 70 (Exercise 5 = 10 muc x 1 diem; Tong Q = tong cua 10 muc, khong cong them)
 };
+const TEST_DURATION_MS = 60 * 60 * 1000; // 60 phut lam bai, tinh tu luc dang nhap lan dau
 /* ============================================================
    MEP Recruitment Test — online multi-user version (bilingual)
    Storage: window.storage-style API backed by Firebase Firestore
@@ -465,6 +495,7 @@ let dashRoster = [];
 let gradeTarget = null;
 let gradeSubmission = null;
 let errorMsg = "";
+let testTimerInterval = null;
 
 const root = document.getElementById("app-root");
 const topActions = document.getElementById("top-actions");
@@ -476,6 +507,7 @@ function blankSubmission(){
   return {
     candidateInfo: { fullName:"", dob:"" },
     answers: blankAnswers(),
+    testStartedAt: null,
     submittedAt: null,
     grading: { ex1:{}, ex2:{}, ex3:{left:{},right:{},notes:{}}, ex5:{ items:{}, q:0 } },
     gradedAt: null,
@@ -635,6 +667,10 @@ function renderCandidateLogin(){
     if(!sub){ sub = blankSubmission(); await sSet(`submission:${u}`, sub); }
     if(!sub.candidateInfo) sub.candidateInfo = { fullName:"", dob:"" };
     if(!sub.candidateInfo.fullName) sub.candidateInfo.fullName = account.fullName || "";
+    if(!sub.submittedAt && !sub.testStartedAt){
+      sub.testStartedAt = new Date().toISOString();
+      await sSet(`submission:${u}`, sub);
+    }
     candidateSubmission = sub;
     candidateAnswers = sub.answers || blankAnswers();
     candidateInfo = sub.candidateInfo;
@@ -650,12 +686,28 @@ function renderCandidateTest(){
   const a = candidateAnswers;
   const info = candidateInfo;
 
+  if(!candidateSubmission.testStartedAt){ candidateSubmission.testStartedAt = new Date().toISOString(); }
+  const testDeadline = new Date(candidateSubmission.testStartedAt).getTime() + TEST_DURATION_MS;
+
   root.innerHTML = `
     <div class="progress-wrap">
       <div class="progress-track"><div class="progress-fill" id="progress-fill" style="width:0%"></div></div>
       <div class="progress-label"><span id="progress-text">0%</span><span class="autosave-tag" id="autosave-tag">&#10003; ${bis("Đã lưu","Saved")}</span></div>
+      <div class="timer-wrap">
+        <div class="timer-label"><span>${bis("Thời gian còn lại","Time remaining")}</span><span id="timer-text">60:00</span></div>
+        <div class="timer-track"><div class="timer-fill" id="timer-fill" style="width:100%"></div></div>
+      </div>
+    </div>
+    <div id="time-up-overlay" class="time-up-overlay" style="display:none;">
+      <div class="time-up-box">
+        <div class="clock-icon">&#9203;</div>
+        <h2>${bis("Đã hết giờ làm bài","Time is up")}</h2>
+        <p>${bis("Bạn đã sử dụng hết 60 phút làm bài. Vui lòng bấm nút bên dưới để nộp bài — các câu chưa trả lời sẽ được tính 0 điểm.","")}</p>
+        <button class="btn btn-accent btn-block" id="btn-timeup-submit">${bis("Nộp bài","Submit test")} &rarr;</button>
+      </div>
     </div>
 
+    <div id="test-body">
     <div class="card">
       <h2>${bi("Thông tin ứng viên","Candidate Information")}</h2>
       <p class="lead">${bi("Vui lòng nhập đầy đủ thông tin để lưu vào kết quả bài thi.","Please fill in your details — this will be recorded on the test result.")}</p>
@@ -718,6 +770,7 @@ function renderCandidateTest(){
       <div class="btn-row">
         <button class="btn btn-accent" id="btn-submit" style="margin-left:auto;">${bis("Nộp bài","Submit test")} &rarr;</button>
       </div>
+    </div>
     </div>
   `;
 
@@ -794,20 +847,67 @@ function renderCandidateTest(){
   wireZoom("diagram3-img");
   wireZoom("diagram5-img");
 
-  document.getElementById("btn-submit").onclick = async ()=>{
-    if(!confirm(bis("Bạn có chắc chắn muốn nộp bài? Sau khi nộp sẽ không thể chỉnh sửa câu trả lời.","Are you sure you want to submit? You will not be able to edit your answers after submitting."))) return;
-    if(!info.fullName || !info.dob){
-      alert(bis("Vui lòng nhập Họ và tên và Ngày sinh trước khi nộp bài.",""));
-      return;
+  async function doSubmit(forced){
+    if(!forced){
+      if(!confirm(bis("Bạn có chắc chắn muốn nộp bài? Sau khi nộp sẽ không thể chỉnh sửa câu trả lời.","Are you sure you want to submit? You will not be able to edit your answers after submitting."))) return;
+      if(!info.fullName || !info.dob){
+        alert(bis("Vui lòng nhập Họ và tên và Ngày sinh trước khi nộp bài.",""));
+        return;
+      }
     }
+    clearInterval(testTimerInterval);
     const btn = document.getElementById("btn-submit");
-    btn.disabled = true; btn.textContent = bis("Đang nộp bài...","Submitting...");
+    if(btn){ btn.disabled = true; btn.textContent = bis("Đang nộp bài...","Submitting..."); }
+    const tuBtn = document.getElementById("btn-timeup-submit");
+    if(tuBtn){ tuBtn.disabled = true; tuBtn.textContent = bis("Đang nộp bài...","Submitting..."); }
     candidateSubmission.candidateInfo = candidateInfo;
     candidateSubmission.answers = candidateAnswers;
     candidateSubmission.submittedAt = new Date().toISOString();
     await sSet(`submission:${session.username}`, candidateSubmission);
     goto("c-done");
-  };
+  }
+
+  document.getElementById("btn-submit").onclick = ()=>doSubmit(false);
+  document.getElementById("btn-timeup-submit").onclick = ()=>doSubmit(true);
+
+  /* ---- 60-minute countdown, locks the whole test when it hits zero ---- */
+  function lockTestForTimeUp(){
+    clearInterval(testTimerInterval);
+    const overlay = document.getElementById("time-up-overlay");
+    const body = document.getElementById("test-body");
+    if(overlay) overlay.style.display = "flex";
+    if(body) body.classList.add("test-locked");
+    body && body.querySelectorAll("input,select,textarea,button").forEach(el=>{ el.disabled = true; });
+    clearTimeout(saveTimer);
+  }
+  function tickTimer(){
+    const remain = testDeadline - Date.now();
+    const text = document.getElementById("timer-text");
+    const fill = document.getElementById("timer-fill");
+    if(remain <= 0){
+      if(text) text.textContent = "00:00";
+      if(fill){ fill.style.width = "0%"; }
+      lockTestForTimeUp();
+      return;
+    }
+    const totalSec = Math.floor(remain/1000);
+    const mm = String(Math.floor(totalSec/60)).padStart(2,"0");
+    const ss = String(totalSec%60).padStart(2,"0");
+    if(text) text.textContent = `${mm}:${ss}`;
+    if(fill){
+      const pct = Math.max(0, Math.min(100, (remain/TEST_DURATION_MS)*100));
+      fill.style.width = pct+"%";
+      fill.classList.toggle("timer-danger", pct<15);
+      fill.classList.toggle("timer-warn", pct>=15 && pct<40);
+    }
+  }
+  clearInterval(testTimerInterval);
+  if(Date.now() >= testDeadline){
+    tickTimer(); // will lock immediately
+  } else {
+    tickTimer();
+    testTimerInterval = setInterval(tickTimer, 1000);
+  }
 
   updateProgress();
 }
