@@ -465,6 +465,11 @@ const EX3_CONFIG = {
       "CO - Clean Out","BWV - Backwater Valve","FCO - Floor Clean Out","Running Trap",
       "Flush Valve","HB - Hose Bibb","Lavatory (Wash Basin)","WC - Water Closet"
     ],
+    // Items 1-4 (WWP/SWP/VP/VC) show the abbreviation baked into the symbol
+    // image itself (matching the original spreadsheet's blank "DESCRIPTION"
+    // cell) — the candidate types the full name as free text instead of
+    // picking it from a dropdown.
+    textIndices: [1,2,3,4],
     totalPoints: 40 // 20 symbols x 2
   }
 };
@@ -477,10 +482,13 @@ function ex3SymbolOptions(examSet){
 }
 
 // Exercise 4 — "AutoCad Drawing Skill" (present only in DE2/DE3/DE4, not
-// DE1). This is a hands-on CAD exercise done outside the web app (the
-// candidate draws on paper/CAD and hands the drawing in separately) — the
-// app shows the reference diagrams and lets the interviewer enter the 5
-// rubric scores, copied verbatim from the official answer sheet.
+// DE1). This is a hands-on CAD exercise the candidate does outside the web
+// app (they draw on AutoCAD and hand the drawing file in separately to the
+// interviewer) — the app only shows the reference diagrams as a reminder of
+// what to draw. It is NOT scored in this system (graded by the interviewer
+// off-system from the candidate's CAD file) and does not count toward the
+// app's total score. EX4_RUBRIC is kept here only as the printed checklist
+// (copied verbatim from the official answer sheet) shown for reference.
 const EX4_RUBRIC = [
   { key:"route",    label:"Vẽ tuyến ống đúng theo yêu cầu",       max:10 },
   { key:"pipeName", label:"Chú thích đầy đủ tên ống",             max:5  },
@@ -490,16 +498,15 @@ const EX4_RUBRIC = [
 ];
 const EX4_CONFIG = {
   DE1: null,
-  DE2: { refA: ASSET_EX4_REF_DE2_A, refB: ASSET_EX4_REF_DE2_B, totalPoints:30 },
-  DE3: { refA: ASSET_EX4_REF_DE3_A, refB: ASSET_EX4_REF_DE3_B, totalPoints:30 },
-  DE4: { refA: ASSET_EX4_REF_DE4_A, refB: ASSET_EX4_REF_DE4_B, totalPoints:30 }
+  DE2: { refA: ASSET_EX4_REF_DE2_A, refB: ASSET_EX4_REF_DE2_B },
+  DE3: { refA: ASSET_EX4_REF_DE3_A, refB: ASSET_EX4_REF_DE3_B },
+  DE4: { refA: ASSET_EX4_REF_DE4_A, refB: ASSET_EX4_REF_DE4_B }
 };
 
 const EXAM_SETS = ["DE1","DE2","DE3","DE4"];
 function examTotalPoints(examSet){
   const ex3 = (EX3_CONFIG[examSet]||EX3_CONFIG.DE1).totalPoints;
-  const ex4 = EX4_CONFIG[examSet] ? EX4_CONFIG[examSet].totalPoints : 0;
-  return 10 + 10 + ex3 + 10 + ex4;
+  return 10 + 10 + ex3 + 10; // Exercise 4 (CAD) is not scored in-system
 }
 
 // Exercise 5 — 10 numbered heat-transfer sources, 1 point each.
@@ -634,6 +641,23 @@ function fmtDT(iso){ if(!iso) return ""; const d=new Date(iso); return d.toLocal
 function normalize(v){ return (v===undefined||v===null) ? "" : String(v).trim().toLowerCase().replace(/\s+/g,""); }
 function checkEx1(val,item){ const c=normalize(val); if(!c) return false; const a=normalize(item.answerA); const m1=normalize(item.answerMM); return c===a||c===m1||c===m1+"mm"; }
 function checkEx2(val,item){ const c=normalize(val); if(!c) return false; const a1=normalize(item.answer); return c===a1||c===a1+"mm"; }
+// Flexible equipment/symbol-name matcher: accepts the full label ("WWP - Waste
+// Water Pipe"), just the abbreviation before " - " ("WWP"), or just the
+// descriptive name after it ("Waste Water Pipe") — case/space insensitive.
+// Used for all Exercise 3 legend/list items (dropdown or free text) so
+// free-text answers aren't penalized for the exact form typed.
+function checkEquipText(val, correct){
+  const nv = normalize(val);
+  if(!nv) return false;
+  const nc = normalize(correct);
+  if(nv === nc) return true;
+  const parts = String(correct).split(" - ");
+  if(parts.length > 1){
+    if(nv === normalize(parts[0])) return true; // abbreviation only
+    if(nv === normalize(parts.slice(1).join(" - "))) return true; // descriptive name only
+  }
+  return false;
+}
 function genPassword(){
   const chars="abcdefghjkmnpqrstuvwxyz23456789";
   let s=""; for(let i=0;i<6;i++) s+=chars[Math.floor(Math.random()*chars.length)];
@@ -881,10 +905,10 @@ function renderCandidateTest(){
 
     ${ex4cfg ? `
     <div class="card">
-      <h2>Exercise 4 <span class="pts">${bis("30 điểm","30 points")}</span></h2>
+      <h2>Exercise 4 <span class="pts">${bis("AutoCAD — không tính điểm","AutoCAD — not scored")}</span></h2>
       <p class="lead">${bi(
-        "Dựa vào sơ đồ nguyên lý, vẽ lại tuyến ống/đường ống gió bằng CAD theo mặt bằng chi tiết bên dưới. Bài này thực hiện trên phần mềm CAD và nộp file bản vẽ riêng cho người phỏng vấn — phần chấm điểm (theo thang điểm chuẩn) sẽ do người phỏng vấn nhập thủ công.",
-        "Based on the principle diagram, draw the pipe/duct route by CAD on the detail plan below. This exercise is done in CAD software and the drawing file is submitted separately to the interviewer — scoring (using the standard rubric) is entered manually by the interviewer."
+        "Dựa vào sơ đồ nguyên lý, vẽ lại tuyến ống/đường ống gió bằng CAD theo mặt bằng chi tiết bên dưới. Bài này thực hiện trên phần mềm CAD và nộp file bản vẽ riêng cho người phỏng vấn — không chấm điểm trong hệ thống này.",
+        "Based on the principle diagram, draw the pipe/duct route by CAD on the detail plan below. This exercise is done in CAD software and the drawing file is submitted separately to the interviewer — it is not scored in this system."
       )}</p>
       <div class="diagram-frame"><img id="ex4-img-a" src="${ex4cfg.refA}" style="cursor:zoom-in;"></div>
       <div class="diagram-frame" style="margin-top:12px;"><img id="ex4-img-b" src="${ex4cfg.refB}" style="cursor:zoom-in;"></div>
@@ -941,16 +965,22 @@ function renderCandidateTest(){
     ex2List.appendChild(div);
   });
 
-  function buildLegend(containerId, icons, answerObj, side, options){
+  function buildLegend(containerId, icons, answerObj, side, options, textIndices){
     const wrap = document.getElementById(containerId);
     if(!wrap) return;
     const grid = document.createElement("div"); grid.className="legend-grid";
-    grid.innerHTML = `<div class="legend-head"><div>${bis("Ký hiệu","Symbol")}</div><div>${bis("Chọn tên thiết bị","Select equipment name")}</div></div>`;
+    grid.innerHTML = `<div class="legend-head"><div>${bis("Ký hiệu","Symbol")}</div><div>${bis("Chọn / nhập tên thiết bị","Select / type equipment name")}</div></div>`;
     icons.forEach((src,i)=>{
       const idx=i+1; const val = answerObj[idx] || "";
       const row = document.createElement("div"); row.className="legend-row";
-      const opts = `<option value="">${bis("-- Chọn --","-- Select --")}</option>` + options.map(o=>`<option value="${esc(o)}" ${o===val?"selected":""}>${esc(o)}</option>`).join("");
-      row.innerHTML = `<div class="cell-icon"><img src="${src}"></div><div class="cell-answer"><select data-ex3="${side}:${idx}">${opts}</select></div>`;
+      let answerCell;
+      if(textIndices && textIndices.includes(idx)){
+        answerCell = `<input type="text" data-ex3="${side}:${idx}" value="${esc(val)}" placeholder="${bis("Nhập tên đầy đủ...","Type the full name...")}">`;
+      } else {
+        const opts = `<option value="">${bis("-- Chọn --","-- Select --")}</option>` + options.map(o=>`<option value="${esc(o)}" ${o===val?"selected":""}>${esc(o)}</option>`).join("");
+        answerCell = `<select data-ex3="${side}:${idx}">${opts}</select>`;
+      }
+      row.innerHTML = `<div class="cell-icon"><img src="${src}"></div><div class="cell-answer">${answerCell}</div>`;
       grid.appendChild(row);
     });
     wrap.appendChild(grid);
@@ -969,7 +999,7 @@ function renderCandidateTest(){
       notesWrap.appendChild(d);
     });
   } else if(ex3cfg.mode === "flat"){
-    buildLegend("ex3-flat", ex3cfg.flatIcons, a.ex3.left, "left", ex3Options);
+    buildLegend("ex3-flat", ex3cfg.flatIcons, a.ex3.left, "left", ex3Options, ex3cfg.textIndices);
   } else if(ex3cfg.mode === "list"){
     const listWrap = document.getElementById("ex3-list-items");
     for(let i=1;i<=ex3cfg.listCount;i++){
@@ -1009,6 +1039,7 @@ function renderCandidateTest(){
   root.querySelectorAll("[data-ex1]").forEach(inp=>inp.addEventListener("input", e=>{ a.ex1[e.target.dataset.ex1]=e.target.value; onAnswerChange(); }));
   root.querySelectorAll("[data-ex2]").forEach(inp=>inp.addEventListener("input", e=>{ a.ex2[e.target.dataset.ex2]=e.target.value; onAnswerChange(); }));
   root.querySelectorAll("[data-ex3]").forEach(inp=>inp.addEventListener("change", e=>{ const [s,i]=e.target.dataset.ex3.split(":"); a.ex3[s][i]=e.target.value; onAnswerChange(); }));
+  root.querySelectorAll("input[data-ex3]").forEach(inp=>inp.addEventListener("input", e=>{ const [s,i]=e.target.dataset.ex3.split(":"); a.ex3[s][i]=e.target.value; onAnswerChange(); }));
   root.querySelectorAll("[data-ex3note]").forEach(inp=>inp.addEventListener("change", e=>{ a.ex3.notes[e.target.dataset.ex3note]=e.target.value; onAnswerChange(); }));
   root.querySelectorAll("[data-ex3list]").forEach(inp=>inp.addEventListener("change", e=>{ a.ex3.list[e.target.dataset.ex3list]=e.target.value; onAnswerChange(); }));
   root.querySelectorAll("[data-ex3sub]").forEach(inp=>inp.addEventListener("input", e=>{ const [col,r]=e.target.dataset.ex3sub.split(":"); if(!a.ex3.sub[col]) a.ex3.sub[col]=["","",""]; a.ex3.sub[col][r]=e.target.value; onAnswerChange(); }));
@@ -1217,7 +1248,7 @@ function gradeTotal(g){
   if(!g) return 0;
   const sum=(o)=>Object.values(o||{}).reduce((s,v)=>s+(parseFloat(v)||0),0);
   const ex3 = sum(g.ex3?.left)+sum(g.ex3?.right)+sum(g.ex3?.notes)+sum(g.ex3?.list)+sum(g.ex3?.sub);
-  return sum(g.ex1)+sum(g.ex2)+ex3+sum(g.ex5?.items)+sum(g.ex4);
+  return sum(g.ex1)+sum(g.ex2)+ex3+sum(g.ex5?.items); // Exercise 4 (CAD) is not scored in-system
 }
 
 async function renderAdminDashboard(){
@@ -1382,13 +1413,20 @@ async function openGrade(username){
     EX1_ITEMS.forEach(it=>{ if(gradeSubmission.grading.ex1[it.id]===undefined) gradeSubmission.grading.ex1[it.id] = checkEx1(gradeSubmission.answers.ex1[it.id], it) ? it.points : 0; });
     EX2_ITEMS.forEach(it=>{ if(gradeSubmission.grading.ex2[it.id]===undefined) gradeSubmission.grading.ex2[it.id] = checkEx2(gradeSubmission.answers.ex2[it.id], it) ? it.points : 0; });
     if(ex3cfg.mode==="split"){
-      ex3cfg.leftAnswers.forEach((ans,i)=>{ const idx=i+1; if(gradeSubmission.grading.ex3.left[idx]===undefined) gradeSubmission.grading.ex3.left[idx] = (gradeSubmission.answers.ex3.left[idx]===ans) ? 2 : 0; });
-      ex3cfg.rightAnswers.forEach((ans,i)=>{ const idx=i+1; if(gradeSubmission.grading.ex3.right[idx]===undefined) gradeSubmission.grading.ex3.right[idx] = (gradeSubmission.answers.ex3.right[idx]===ans) ? 2 : 0; });
-      ex3cfg.pipelineNotes.forEach(n=>{ if(gradeSubmission.grading.ex3.notes[n]===undefined) gradeSubmission.grading.ex3.notes[n] = (gradeSubmission.answers.ex3.notes[n]===ex3cfg.pipelineAnswers[n]) ? 1 : 0; });
+      ex3cfg.leftAnswers.forEach((ans,i)=>{ const idx=i+1; if(gradeSubmission.grading.ex3.left[idx]===undefined) gradeSubmission.grading.ex3.left[idx] = checkEquipText(gradeSubmission.answers.ex3.left[idx], ans) ? 2 : 0; });
+      ex3cfg.rightAnswers.forEach((ans,i)=>{ const idx=i+1; if(gradeSubmission.grading.ex3.right[idx]===undefined) gradeSubmission.grading.ex3.right[idx] = checkEquipText(gradeSubmission.answers.ex3.right[idx], ans) ? 2 : 0; });
+      ex3cfg.pipelineNotes.forEach(n=>{ if(gradeSubmission.grading.ex3.notes[n]===undefined) gradeSubmission.grading.ex3.notes[n] = checkEquipText(gradeSubmission.answers.ex3.notes[n], ex3cfg.pipelineAnswers[n]) ? 1 : 0; });
     } else if(ex3cfg.mode==="flat"){
-      ex3cfg.flatAnswers.forEach((ans,i)=>{ const idx=i+1; if(gradeSubmission.grading.ex3.left[idx]===undefined) gradeSubmission.grading.ex3.left[idx] = (gradeSubmission.answers.ex3.left[idx]===ans) ? 2 : 0; });
+      ex3cfg.flatAnswers.forEach((ans,i)=>{ const idx=i+1; if(gradeSubmission.grading.ex3.left[idx]===undefined) gradeSubmission.grading.ex3.left[idx] = checkEquipText(gradeSubmission.answers.ex3.left[idx], ans) ? 2 : 0; });
     } else if(ex3cfg.mode==="list"){
-      ex3cfg.listAnswers.forEach((ans,i)=>{ const idx=i+1; if(gradeSubmission.grading.ex3.list[idx]===undefined) gradeSubmission.grading.ex3.list[idx] = (gradeSubmission.answers.ex3.list[idx]===ans) ? 2 : 0; });
+      ex3cfg.listAnswers.forEach((ans,i)=>{ const idx=i+1; if(gradeSubmission.grading.ex3.list[idx]===undefined) gradeSubmission.grading.ex3.list[idx] = checkEquipText(gradeSubmission.answers.ex3.list[idx], ans) ? 2 : 0; });
+      if(ex3cfg.subTable) ex3cfg.subTable.cols.forEach(col=>{
+        if(gradeSubmission.grading.ex3.sub[col.key]===undefined || gradeSubmission.grading.ex3.sub[col.key]===0){
+          const vals = gradeSubmission.answers.ex3.sub[col.key] || ["","",""];
+          const matches = col.ref.reduce((s,ref,r)=>s+(normalize(vals[r])===normalize(ref)?1:0),0);
+          gradeSubmission.grading.ex3.sub[col.key] = Math.round((matches/3)*ex3cfg.subTable.pointsPerCol*2)/2;
+        }
+      });
     }
   }
   view = "a-grade";
@@ -1438,7 +1476,8 @@ function drawGrade(){
     </div>
     ${ex4cfg ? `
     <div class="card">
-      <div class="ex-grade-header"><h2 style="margin:0;">Exercise 4 — AutoCad Drawing Skill</h2><span class="ex-grade-total" id="ex4-total">0 / 30</span></div>
+      <div class="ex-grade-header"><h2 style="margin:0;">Exercise 4 — AutoCad Drawing Skill</h2><span class="ex-grade-total">${bis("Không tính điểm","Not scored")}</span></div>
+      <p class="unit-hint" style="margin:0 0 10px;">${bis("Ứng viên nộp file CAD riêng cho người phỏng vấn — phần này không chấm điểm trong hệ thống. Danh sách bên dưới là các tiêu chí tham khảo (theo đề gốc) để chấm ngoài hệ thống.","The candidate submits a separate CAD file to the interviewer — this part is not scored in this system. The list below is the reference rubric (from the original answer sheet) for grading off-system.")}</p>
       <div class="diagram-frame"><img id="ex4g-img-a" src="${ex4cfg.refA}" style="cursor:zoom-in;"></div>
       <div class="diagram-frame" style="margin-top:12px;"><img id="ex4g-img-b" src="${ex4cfg.refB}" style="cursor:zoom-in;"></div>
       <div id="grade-ex4" style="margin-top:14px;"></div>
@@ -1531,7 +1570,7 @@ function drawGrade(){
       icons.forEach((src,i)=>{
         const idx=i+1; const val = answerObj[idx] || "";
         const correct = answers[i];
-        const ok = val && val === correct;
+        const ok = val && checkEquipText(val, correct);
         const row = document.createElement("div"); row.className="grade-row";
         row.innerHTML = `<div class="icon-row-grade"><img src="${src}"><div>
             <div class="ga-answer ${val?"":"empty"}" style="margin:0;">${val?esc(val):bis("(chưa trả lời)","(not answered)")}</div>
@@ -1560,7 +1599,7 @@ function drawGrade(){
       ex3cfg.pipelineNotes.forEach(n=>{
         const val = a.ex3.notes[n] || "";
         const correct = ex3cfg.pipelineAnswers[n];
-        const ok = val && val === correct;
+        const ok = val && checkEquipText(val, correct);
         const row = document.createElement("div"); row.className="grade-row";
         row.innerHTML = `<div><div class="ga-label">${bis("Vị trí số","Position")} ${n}</div><div class="ga-answer ${val?"":"empty"}">${val?esc(val):bis("(chưa trả lời)","(not answered)")}</div>
             <div class="ga-correct">${bis("Đáp án","Answer")}: ${esc(correct)}</div></div>
@@ -1579,7 +1618,7 @@ function drawGrade(){
       const listWrap = document.getElementById("grade-ex3-list");
       ex3cfg.listAnswers.forEach((correct,i)=>{
         const idx=i+1; const val = a.ex3.list[idx] || "";
-        const ok = val && val === correct;
+        const ok = val && checkEquipText(val, correct);
         const row = document.createElement("div"); row.className="grade-row";
         row.innerHTML = `<div><div class="ga-label">${bis("Vị trí số","Position")} ${idx}</div><div class="ga-answer ${val?"":"empty"}">${val?esc(val):bis("(chưa trả lời)","(not answered)")}</div>
             <div class="ga-correct">${bis("Đáp án","Answer")}: ${esc(correct)}</div></div>
@@ -1607,21 +1646,16 @@ function drawGrade(){
   }
 
   function renderEx4Grading(){
+    // Not scored in-system — just print the rubric criteria (from the
+    // original answer sheet) as a reference checklist for the interviewer
+    // to use off-system against the candidate's submitted CAD file.
     const wrap = document.getElementById("grade-ex4");
     if(!wrap || !ex4cfg) return;
-    wrap.innerHTML = "";
-    EX4_RUBRIC.forEach(item=>{
-      const row = document.createElement("div"); row.className="grade-row";
-      row.style.gridTemplateColumns = "1fr 90px";
-      row.innerHTML = `<div><div class="ga-label">${esc(item.label)}</div></div>
-        <div class="ga-score"><input type="number" min="0" max="${item.max}" step="0.5" data-g4="${item.key}" value="${g.ex4[item.key]??0}"> / ${item.max}</div>`;
-      wrap.appendChild(row);
-    });
-    wrap.querySelectorAll("[data-g4]").forEach(inp=>inp.addEventListener("input", e=>{
-      const item = EX4_RUBRIC.find(r=>r.key===e.target.dataset.g4);
-      g.ex4[e.target.dataset.g4] = clampScoreMax(e.target.value, item.max);
-      recomputeTotals();
-    }));
+    wrap.innerHTML = EX4_RUBRIC.map(item=>`
+      <div class="grade-row" style="grid-template-columns:1fr 70px;">
+        <div><div class="ga-label">${esc(item.label)}</div></div>
+        <div class="unit-hint" style="text-align:right;">${bis("tối đa","max")} ${item.max}</div>
+      </div>`).join("");
   }
   function renderEx5Grading(){
     const wrap = document.getElementById("grade-ex5-items");
@@ -1642,15 +1676,12 @@ function drawGrade(){
     const t2 = EX2_ITEMS.reduce((s,it)=>s+(parseInt(g.ex2[it.id],10)||0),0);
     const t3 = sumObj(g.ex3.left) + sumObj(g.ex3.right) + sumObj(g.ex3.notes) + sumObj(g.ex3.list) + sumObj(g.ex3.sub);
     const t5 = sumObj(g.ex5.items);
-    const t4 = ex4cfg ? sumObj(g.ex4) : 0;
     document.getElementById("ex1-total").textContent = `${t1} / 10`;
     document.getElementById("ex2-total").textContent = `${t2} / 10`;
     document.getElementById("ex3-total").textContent = `${t3} / ${ex3cfg.totalPoints}`;
     document.getElementById("ex5-total").textContent = `${t5} / 10`;
-    const ex4El = document.getElementById("ex4-total");
-    if(ex4El) ex4El.textContent = `${t4} / 30`;
-    document.getElementById("grand-total").textContent = (t1+t2+t3+t5+t4);
-    return {t1,t2,t3,t4,t5,total:t1+t2+t3+t5+t4};
+    document.getElementById("grand-total").textContent = (t1+t2+t3+t5);
+    return {t1,t2,t3,t5,total:t1+t2+t3+t5}; // Exercise 4 (CAD) is not scored in-system
   }
 }
 
@@ -1681,8 +1712,7 @@ async function exportPDF(){
   const t2 = EX2_ITEMS.reduce((s,it)=>s+(parseInt(g.ex2[it.id],10)||0),0);
   const t3 = sumObj(g.ex3.left)+sumObj(g.ex3.right)+sumObj(g.ex3.notes)+sumObj(g.ex3.list)+sumObj(g.ex3.sub);
   const t5 = sumObj(g.ex5.items);
-  const t4 = ex4cfg ? sumObj(g.ex4) : 0;
-  const total = t1+t2+t3+t5+t4;
+  const total = t1+t2+t3+t5; // Exercise 4 (CAD) is not scored in-system
 
   const rowsHtml=(title, items)=>`<tr><td colspan="3" style="background:#f0f4f7;font-weight:700;padding:6px 8px;">${title}</td></tr>` +
     items.map(it=>`<tr><td style="padding:5px 8px;border-bottom:1px solid #e2e8ee;">${esc(it.label)}</td><td style="padding:5px 8px;border-bottom:1px solid #e2e8ee;">${esc(it.ans||"—")}</td><td style="padding:5px 8px;border-bottom:1px solid #e2e8ee;text-align:center;">${it.score} / ${it.max}</td></tr>`).join("");
@@ -1702,7 +1732,6 @@ async function exportPDF(){
     ex3Rows = Array.from({length:ex3cfg.listCount},(_,i)=>({label:`Vị trí số #${i+1}`, ans:a.ex3.list[i+1], score:g.ex3.list[i+1]||0, max:2}));
     if(ex3cfg.subTable) ex3Rows = ex3Rows.concat(ex3cfg.subTable.cols.map(col=>({label:col.label, ans:(a.ex3.sub[col.key]||[]).filter(Boolean).join(" / "), score:g.ex3.sub[col.key]||0, max:ex3cfg.subTable.pointsPerCol})));
   }
-  const ex4Rows = ex4cfg ? EX4_RUBRIC.map(item=>({label:item.label, ans:"—", score:g.ex4[item.key]||0, max:item.max})) : [];
   const ex5ItemRows = [];
   for(let i=1;i<=EX5_ITEM_COUNT;i++) ex5ItemRows.push(`<div style="display:flex;gap:8px;padding:3px 0;font-size:11px;"><b style="width:16px;">${i}.</b><span style="flex:1;">${esc(a.ex5.items[i]||"—")}</span><b style="width:34px;text-align:right;">${g.ex5.items[i]||0}/1</b></div>`);
 
@@ -1737,8 +1766,8 @@ async function exportPDF(){
           <div style="font-size:26px;font-weight:800;">${total} / ${totalPoints}</div>
           <div style="font-size:11px;letter-spacing:.5px;text-transform:uppercase;color:#cfe4f4;">Tổng điểm</div>
         </div>
-        <div style="flex:2;display:grid;grid-template-columns:repeat(${ex4cfg?5:4},1fr);gap:8px;">
-          ${[["Ex.1",t1,10],["Ex.2",t2,10],["Ex.3",t3,ex3cfg.totalPoints],...(ex4cfg?[["Ex.4",t4,30]]:[]),["Ex.5",t5,10]].map(([n,s,m])=>`
+        <div style="flex:2;display:grid;grid-template-columns:repeat(4,1fr);gap:8px;">
+          ${[["Ex.1",t1,10],["Ex.2",t2,10],["Ex.3",t3,ex3cfg.totalPoints],["Ex.5",t5,10]].map(([n,s,m])=>`
             <div style="border:1px solid #d7dfe6;border-radius:8px;padding:8px;text-align:center;">
               <div style="font-size:11px;color:#5c6b7a;">${n}</div><div style="font-size:16px;font-weight:800;color:#0b2e4f;">${s}/${m}</div>
             </div>`).join("")}
@@ -1781,17 +1810,17 @@ async function exportPDF(){
     </div></div>
 
     ${ex4cfg ? `
-    <!-- ================= Exercise 4 — rotated (landscape-style) page, CAD rubric ================= -->
+    <!-- ================= Exercise 4 — rotated (landscape-style) page, CAD reference (not scored) ================= -->
     <div class="rotate-outer"><div class="rotate-inner">
       <div style="font-family:Arial,Helvetica,sans-serif;color:#1a2430;width:269mm;height:182mm;overflow:hidden;padding:4mm 6mm;box-sizing:border-box;">
         <h2 style="color:#0b2e4f;font-size:15px;border-bottom:2px solid #0b2e4f;padding-bottom:5px;margin:0 0 6px;">
-          Exercise 4 — AutoCad Drawing Skill &nbsp; <span style="float:right;">${t4} / 30 điểm</span>
+          Exercise 4 — AutoCad Drawing Skill &nbsp; <span style="float:right;font-size:11px;font-weight:400;color:#5c6b7a;">Không chấm điểm trong hệ thống — chấm theo file CAD ứng viên nộp riêng</span>
         </h2>
         <div style="display:flex;gap:10px;">
           <img src="${ex4cfg.refA}" style="width:56%;border:1px solid #d7dfe6;">
           <table style="flex:1;border-collapse:collapse;font-size:9px;align-self:flex-start;">
-            <thead><tr style="background:#0b2e4f;color:#fff;"><th style="padding:3px 5px;text-align:left;">Tiêu chí</th><th style="padding:3px 5px;">Điểm</th></tr></thead>
-            <tbody>${ex4Rows.map(it=>`<tr><td style="padding:5px 8px;border-bottom:1px solid #eef1f4;">${esc(it.label)}</td><td style="padding:5px 8px;border-bottom:1px solid #eef1f4;text-align:center;font-weight:700;">${it.score}/${it.max}</td></tr>`).join("")}</tbody>
+            <thead><tr style="background:#0b2e4f;color:#fff;"><th style="padding:3px 5px;text-align:left;">Tiêu chí (tham khảo)</th><th style="padding:3px 5px;">Tối đa</th></tr></thead>
+            <tbody>${EX4_RUBRIC.map(it=>`<tr><td style="padding:5px 8px;border-bottom:1px solid #eef1f4;">${esc(it.label)}</td><td style="padding:5px 8px;border-bottom:1px solid #eef1f4;text-align:center;font-weight:700;">${it.max}</td></tr>`).join("")}</tbody>
           </table>
         </div>
       </div>
