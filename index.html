@@ -285,6 +285,9 @@ label .bi-en{font-size:.78em;}
     </div>
   </div>
   <div class="app" id="app-root"></div>
+  <div style="text-align:center;padding:18px 10px 26px;font-size:12px;color:#9aa7b3;">
+    &#128295; Developed by Ahn Tuan (chỉ dùng trong nội bộ)
+  </div>
   <div id="print-root"></div>
 
 <script type="module">
@@ -459,11 +462,11 @@ const EX3_CONFIG = {
     diagram: ASSET_DIAGRAM_EX3_DE4,
     flatIcons: ASSET_ICONS_DE4,
     flatAnswers: [
-      "WWP - Waste Water Pipe","SWP - Soil Waste Pipe","VP - Vent Pipe","VC - Vent Cap",
-      "FD - Floor Drain","FT - Floor Trap","GT - Grease Trap","MH - Manhole",
-      "CO - Clean Out","FM - Flow Meter","GV - Gate Valve","P-Trap",
-      "CO - Clean Out","BWV - Backwater Valve","FCO - Floor Clean Out","Running Trap",
-      "Flush Valve","HB - Hose Bibb","Lavatory (Wash Basin)","WC - Water Closet"
+      "WWP - Waste Water Pipe","SWP - Soil Water Pipe","VP - Vent Pipe","VC - Vent Cap",
+      "MANHOLE","OIL/GREASE TRAP","SUMPIT","WATER SUPPLY PUMP",
+      "FOOT VALVE","FLOAT CONTROL VALVE","GATE VALVE","FLEXIBLE JOINT",
+      "CHECK VALVE","Y-STRAINER","FLEXIBLE","SUS SINK",
+      "WATER CLOSET","URINAL","LAVATORY","SERVICE SINK"
     ],
     // Items 1-4 (WWP/SWP/VP/VC) show the abbreviation baked into the symbol
     // image itself (matching the original spreadsheet's blank "DESCRIPTION"
@@ -876,6 +879,10 @@ function renderCandidateTest(){
         <div class="field">
           <label>${bis("Ngày tháng năm sinh","Date of birth")} *</label>
           <input id="info-dob" type="date" value="${esc(info.dob||"")}">
+        </div>
+        <div class="field">
+          <label>${bis("Đề thi","Exam set")}</label>
+          <input id="info-examset" type="text" value="${bis("Đề "+examSet.replace(/^DE/,""), "Set "+examSet.replace(/^DE/,""))}" readonly disabled>
         </div>
       </div>
     </div>
@@ -1757,7 +1764,8 @@ async function exportPDF(){
           <td style="padding:4px 8px;color:#5c6b7a;">Vị trí</td><td style="padding:4px 8px;">${esc(acc.position||"—")}</td>
         </tr>
         <tr>
-          <td style="padding:4px 8px;color:#5c6b7a;">Nộp bài lúc</td><td style="padding:4px 8px;" colspan="3">${esc(fmtDT(gradeSubmission.submittedAt)||"—")}</td>
+          <td style="padding:4px 8px;color:#5c6b7a;">Đề thi</td><td style="padding:4px 8px;font-weight:700;">Đề ${esc(String(examSet).replace(/^DE/,""))}</td>
+          <td style="padding:4px 8px;color:#5c6b7a;">Nộp bài lúc</td><td style="padding:4px 8px;">${esc(fmtDT(gradeSubmission.submittedAt)||"—")}</td>
         </tr>
       </table>
 
